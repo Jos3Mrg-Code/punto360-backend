@@ -105,8 +105,15 @@ export class SalesService {
         }
 
         const now = new Date();
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-        const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+        // Obtener la fecha actual en la zona horaria de Colombia (UTC-5, sin DST)
+        const bogotaDate = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Bogota',
+            year: 'numeric', month: '2-digit', day: '2-digit',
+        }).format(now); // "YYYY-MM-DD"
+        const [y, mo, d] = bogotaDate.split('-').map(Number);
+        // Medianoche Bogotá = 05:00 UTC; fin del día Bogotá = siguiente día 04:59:59 UTC
+        const todayStart = new Date(Date.UTC(y, mo - 1, d,     5, 0, 0, 0));
+        const todayEnd   = new Date(Date.UTC(y, mo - 1, d + 1, 4, 59, 59, 999));
 
         const baseWhere = {
             company_id: user.companyId,
