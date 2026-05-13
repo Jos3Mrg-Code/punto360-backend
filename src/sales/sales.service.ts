@@ -105,28 +105,20 @@ export class SalesService {
         }
 
         const now = new Date();
-        // Inicio del día actual (00:00:00 hora local)
         const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-        // Inicio del mes actual (Día 1, 00:00:00)
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-        // Agregamos filtro multi-sucursal
-        const baseWhere = { 
-            company_id: user.companyId, 
-            branch_id: { in: user.branchIds }, 
-            status: 'PAID' 
+        const baseWhere = {
+            company_id: user.companyId,
+            branch_id: { in: user.branchIds },
+            status: 'PAID'
         };
 
-        const [todaySales, monthSales, recentSales, lowStock, totalProducts] = await Promise.all([
-            // Ventas de hoy (Consolidado)
+        const [todaySales, recentSales, lowStock, totalProducts] = await Promise.all([
+            // Ventas estrictamente de hoy
             this.prisma.sales.findMany({
-                where: { ...baseWhere, created_at: { gte: todayStart } },
+                where: { ...baseWhere, created_at: { gte: todayStart, lte: todayEnd } },
                 select: { total: true, payment_method: true }
-            }),
-            // Ventas del mes (Consolidado)
-            this.prisma.sales.findMany({
-                where: { ...baseWhere, created_at: { gte: monthStart } },
-                select: { total: true }
             }),
             // Ultimas 8 ventas (Global de las sucursales del usuario)
             this.prisma.sales.findMany({
@@ -154,16 +146,10 @@ export class SalesService {
         ]);
 
         const totalHoy = todaySales.reduce((sum, s) => sum + Number(s.total), 0);
-        const efectivoHoy = todaySales
-            .filter(s => s.payment_method === 'CASH')
-            .reduce((sum, s) => sum + Number(s.total), 0);
-        const totalMes = monthSales.reduce((sum, s) => sum + Number(s.total), 0);
 
         return {
             totalHoy,
-            efectivoHoy,
             ticketsHoy: todaySales.length,
-            totalMes,
             lowStock,
             totalProducts,
             recentSales,
