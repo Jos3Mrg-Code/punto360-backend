@@ -297,12 +297,32 @@ export class CashRegistersService {
                     status: 'PAID',
                     created_at: { gte: session.opened_at!, lte: closedAt },
                 },
-                select: { total: true, payment_method: true },
+                include: {
+                    sale_items: {
+                        include: { products: { select: { name: true, is_consignment: true } } }
+                    }
+                },
             });
 
-            const cashSales = salesInSession.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + Number(s.total), 0);
-            const cardSales = salesInSession.filter(s => s.payment_method === 'CARD').reduce((sum, s) => sum + Number(s.total), 0);
-            const transferSales = salesInSession.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + Number(s.total), 0);
+            // Desglose por producto de consignación
+            const consignmentMap = new Map<string, number>();
+            for (const sale of salesInSession) {
+                for (const item of sale.sale_items) {
+                    if (!item.products?.is_consignment) continue;
+                    const name = item.products.name;
+                    consignmentMap.set(name, (consignmentMap.get(name) ?? 0) + Number(item.subtotal ?? 0));
+                }
+            }
+            const consignmentItems = Array.from(consignmentMap.entries()).map(([name, total]) => ({ name, total }));
+
+            const consignmentTotalBySale = (sale: typeof salesInSession[0]) =>
+                sale.sale_items
+                    .filter(i => i.products?.is_consignment)
+                    .reduce((s, i) => s + Number(i.subtotal ?? 0), 0);
+
+            const cashSales = salesInSession.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + Number(s.total) - consignmentTotalBySale(s), 0);
+            const cardSales = salesInSession.filter(s => s.payment_method === 'CARD').reduce((sum, s) => sum + Number(s.total) - consignmentTotalBySale(s), 0);
+            const transferSales = salesInSession.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + Number(s.total) - consignmentTotalBySale(s), 0);
             const totalExpenses = session.cash_movements.filter(m => m.type === 'EXPENSE').reduce((sum, m) => sum + Number(m.amount), 0);
             const totalIncomes = session.cash_movements.filter(m => m.type === 'INCOME').reduce((sum, m) => sum + Number(m.amount), 0);
             const openingAmount = Number(session.opening_amount ?? 0);
@@ -323,6 +343,7 @@ export class CashRegistersService {
                     cashSales,
                     cardSales,
                     transferSales,
+                    consignmentItems,
                     totalSales: cashSales + cardSales + transferSales,
                     totalExpenses,
                     expectedCash,
