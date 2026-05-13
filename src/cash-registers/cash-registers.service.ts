@@ -83,23 +83,17 @@ export class CashRegistersService {
         }
         const consignmentItems = Array.from(consignmentMap.entries()).map(([name, total]) => ({ name, total }));
 
-        // Calcular el subtotal de consignación por ticket para restarlo del total de inventario
-        const consignmentTotalBySale = (sale: typeof salesInSession[0]) =>
-            sale.sale_items
-                .filter(i => i.products?.is_consignment)
-                .reduce((s, i) => s + Number(i.subtotal ?? 0), 0);
-
         const cashSales = salesInSession
             .filter(s => s.payment_method === 'CASH')
-            .reduce((sum, s) => sum + Number(s.total) - consignmentTotalBySale(s), 0);
+            .reduce((sum, s) => sum + Number(s.total), 0);
 
         const cardSales = salesInSession
             .filter(s => s.payment_method === 'CARD')
-            .reduce((sum, s) => sum + Number(s.total) - consignmentTotalBySale(s), 0);
+            .reduce((sum, s) => sum + Number(s.total), 0);
 
         const transferSales = salesInSession
             .filter(s => s.payment_method === 'TRANSFER')
-            .reduce((sum, s) => sum + Number(s.total) - consignmentTotalBySale(s), 0);
+            .reduce((sum, s) => sum + Number(s.total), 0);
 
         // Movimientos manuales de caja (gastos e ingresos)
         const allMovements = await this.prisma.cash_movements.findMany({
@@ -304,7 +298,7 @@ export class CashRegistersService {
                 },
             });
 
-            // Desglose por producto de consignación
+            // Desglose por producto de consignación (solo informativo)
             const consignmentMap = new Map<string, number>();
             for (const sale of salesInSession) {
                 for (const item of sale.sale_items) {
@@ -315,14 +309,9 @@ export class CashRegistersService {
             }
             const consignmentItems = Array.from(consignmentMap.entries()).map(([name, total]) => ({ name, total }));
 
-            const consignmentTotalBySale = (sale: typeof salesInSession[0]) =>
-                sale.sale_items
-                    .filter(i => i.products?.is_consignment)
-                    .reduce((s, i) => s + Number(i.subtotal ?? 0), 0);
-
-            const cashSales = salesInSession.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + Number(s.total) - consignmentTotalBySale(s), 0);
-            const cardSales = salesInSession.filter(s => s.payment_method === 'CARD').reduce((sum, s) => sum + Number(s.total) - consignmentTotalBySale(s), 0);
-            const transferSales = salesInSession.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + Number(s.total) - consignmentTotalBySale(s), 0);
+            const cashSales = salesInSession.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + Number(s.total), 0);
+            const cardSales = salesInSession.filter(s => s.payment_method === 'CARD').reduce((sum, s) => sum + Number(s.total), 0);
+            const transferSales = salesInSession.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + Number(s.total), 0);
             const totalExpenses = session.cash_movements.filter(m => m.type === 'EXPENSE').reduce((sum, m) => sum + Number(m.amount), 0);
             const totalIncomes = session.cash_movements.filter(m => m.type === 'INCOME').reduce((sum, m) => sum + Number(m.amount), 0);
             const openingAmount = Number(session.opening_amount ?? 0);
