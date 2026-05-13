@@ -3,6 +3,24 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateSaleDto, HoldSaleDto, CompleteSaleDto } from './dto/create-sale.dto';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
 
+// Colombia es UTC-5 sin DST. Convierte una fecha "YYYY-MM-DD" o Date al inicio/fin del día en UTC.
+function bogotaDayStart(date: string | Date): Date {
+    const [y, m, d] = toBogotateParts(date);
+    return new Date(Date.UTC(y, m - 1, d, 5, 0, 0, 0));
+}
+function bogotaDayEnd(date: string | Date): Date {
+    const [y, m, d] = toBogotateParts(date);
+    return new Date(Date.UTC(y, m - 1, d + 1, 4, 59, 59, 999));
+}
+function toBogotateParts(date: string | Date): [number, number, number] {
+    const str = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Bogota',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(typeof date === 'string' ? new Date(date) : date);
+    const [y, m, d] = str.split('-').map(Number);
+    return [y, m, d];
+}
+
 @Injectable()
 export class SalesService {
     constructor(private prisma: PrismaService) {}
@@ -104,16 +122,8 @@ export class SalesService {
             throw new BadRequestException("El usuario no tiene una sucursal asignada.");
         }
 
-        const now = new Date();
-        // Obtener la fecha actual en la zona horaria de Colombia (UTC-5, sin DST)
-        const bogotaDate = new Intl.DateTimeFormat('en-CA', {
-            timeZone: 'America/Bogota',
-            year: 'numeric', month: '2-digit', day: '2-digit',
-        }).format(now); // "YYYY-MM-DD"
-        const [y, mo, d] = bogotaDate.split('-').map(Number);
-        // Medianoche Bogotá = 05:00 UTC; fin del día Bogotá = siguiente día 04:59:59 UTC
-        const todayStart = new Date(Date.UTC(y, mo - 1, d,     5, 0, 0, 0));
-        const todayEnd   = new Date(Date.UTC(y, mo - 1, d + 1, 4, 59, 59, 999));
+        const todayStart = bogotaDayStart(new Date());
+        const todayEnd   = bogotaDayEnd(new Date());
 
         const baseWhere = {
             company_id: user.companyId,
@@ -174,24 +184,14 @@ export class SalesService {
         };
 
         if (startDate && endDate) {
-            const start = new Date(startDate);
-            start.setHours(0, 0, 0, 0);
-            
-            const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999);
-
             whereClause.created_at = {
-                gte: start,
-                lte: end,
+                gte: bogotaDayStart(startDate),
+                lte: bogotaDayEnd(endDate),
             };
         } else {
-            // Por defecto ventas de los ultimos 7 dias para evitar confusiones de "lista vacía"
-            const start = new Date();
-            start.setDate(start.getDate() - 7);
-            start.setHours(0,0,0,0);
-            whereClause.created_at = {
-                gte: start
-            };
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7);
+            whereClause.created_at = { gte: sevenDaysAgo };
         }
 
         return this.prisma.sales.findMany({
