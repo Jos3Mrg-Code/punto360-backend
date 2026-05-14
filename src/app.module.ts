@@ -27,6 +27,7 @@ import { SuperAdminModule } from './superadmin/superadmin.module';
 import { CustomersModule } from './customers/customers.module';
 import { CarteraModule } from './cartera/cartera.module';
 import { PublicApiModule } from './public-api/public-api.module';
+import { ShopifyOAuthModule } from './shopify-oauth/shopify-oauth.module';
 
 @Module({
   imports: [PrismaModule, AuthModule, UsersModule, CompaniesModule, BranchesModule, ProductsModule, InventoryModule, SalesModule, ExpensesModule, CashModule, ReportsModule,
@@ -41,6 +42,7 @@ import { PublicApiModule } from './public-api/public-api.module';
     CustomersModule,
     CarteraModule,
     PublicApiModule,
+    ShopifyOAuthModule,
   ],
   controllers: [AppController],
   providers: [AppService,
