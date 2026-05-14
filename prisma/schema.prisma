@@ -310,6 +310,7 @@ model sales {
   status         String?      @default("PAID")
   is_credit      Boolean?     @default(false)
   created_at     DateTime?    @default(now()) @db.Timestamp(6)
+  paid_at        DateTime?    @db.Timestamp(6)
   sale_items     sale_items[]
   branches       branches?    @relation(fields: [branch_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   companies      companies?   @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
