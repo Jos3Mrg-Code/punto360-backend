@@ -64,25 +64,25 @@ export class PublicApiController {
 
   @Get('keys')
   async listKeys(@Req() req: any) {
-    return this.service.listApiKeys(req.user.company_id);
+    return this.service.listApiKeys(req.user.companyId);
   }
 
   @Post('keys')
   async createKey(@Req() req: any, @Body('name') name: string) {
-    return this.service.createApiKey(req.user.company_id, name ?? 'Mi tienda');
+    return this.service.createApiKey(req.user.companyId, name ?? 'Mi tienda');
   }
 
   @Patch('keys/:id/revoke')
   @HttpCode(200)
   async revokeKey(@Req() req: any, @Param('id') id: string) {
-    await this.service.revokeApiKey(req.user.company_id, id);
+    await this.service.revokeApiKey(req.user.companyId, id);
     return { message: 'API key revocada' };
   }
 
   @Delete('keys/:id')
   @HttpCode(200)
   async deleteKey(@Req() req: any, @Param('id') id: string) {
-    await this.service.deleteApiKey(req.user.company_id, id);
+    await this.service.deleteApiKey(req.user.companyId, id);
     return { message: 'API key eliminada' };
   }
 }
