@@ -106,6 +106,21 @@ async function run() {
   await fk("variant_stock_branch_id_fkey",                `ALTER TABLE "variant_stock"            ADD CONSTRAINT "variant_stock_branch_id_fkey"                FOREIGN KEY ("branch_id")          REFERENCES "branches"("id")          ON DELETE CASCADE  ON UPDATE NO ACTION`);
   await fk("sale_items_variant_id_fkey",                  `ALTER TABLE "sale_items"               ADD CONSTRAINT "sale_items_variant_id_fkey"                  FOREIGN KEY ("variant_id")         REFERENCES "product_variants"("id")  ON DELETE SET NULL ON UPDATE NO ACTION`);
 
+  // api_keys
+  await sql(`
+    CREATE TABLE IF NOT EXISTS "api_keys" (
+      "id"         UUID    NOT NULL DEFAULT uuid_generate_v4(),
+      "company_id" UUID    NOT NULL,
+      "key"        TEXT    NOT NULL,
+      "name"       TEXT    NOT NULL,
+      "is_active"  BOOLEAN NOT NULL DEFAULT true,
+      "created_at" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "api_keys_pkey" PRIMARY KEY ("id")
+    )
+  `);
+  await sql(`CREATE UNIQUE INDEX IF NOT EXISTS "api_keys_key_key" ON "api_keys"("key")`);
+  await fk("api_keys_company_id_fkey", `ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+
   console.log("[schema] ✓ Base de datos actualizada correctamente.");
 }
 

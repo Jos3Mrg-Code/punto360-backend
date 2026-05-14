@@ -17,13 +17,13 @@ import { ApiKeyGuard } from './api-key.guard';
 import { Public } from '../auth/decorators/public.decorator';
 import { Request } from 'express';
 
-// Rutas públicas (protegidas con API Key, no JWT)
+// Endpoints de catálogo — públicos, autenticados por API Key
 @Public()
+@UseGuards(ApiKeyGuard)
 @Controller('public-api')
 export class PublicApiController {
   constructor(private readonly service: PublicApiService) {}
 
-  @UseGuards(ApiKeyGuard)
   @Get('products')
   async getProducts(
     @Req() req: Request & { companyId: string },
@@ -48,7 +48,6 @@ export class PublicApiController {
     };
   }
 
-  @UseGuards(ApiKeyGuard)
   @Get('products/:id')
   async getProduct(
     @Req() req: Request & { companyId: string },
@@ -59,27 +58,31 @@ export class PublicApiController {
     if (!product) throw new NotFoundException('Producto no encontrado');
     return product;
   }
+}
 
-  // --- Gestión de API Keys (detrás de JWT normal) ---
+// Gestión de API Keys — protegido por JWT normal
+@Controller('public-api/keys')
+export class ApiKeysController {
+  constructor(private readonly service: PublicApiService) {}
 
-  @Get('keys')
+  @Get()
   async listKeys(@Req() req: any) {
     return this.service.listApiKeys(req.user.companyId);
   }
 
-  @Post('keys')
+  @Post()
   async createKey(@Req() req: any, @Body('name') name: string) {
     return this.service.createApiKey(req.user.companyId, name ?? 'Mi tienda');
   }
 
-  @Patch('keys/:id/revoke')
+  @Patch(':id/revoke')
   @HttpCode(200)
   async revokeKey(@Req() req: any, @Param('id') id: string) {
     await this.service.revokeApiKey(req.user.companyId, id);
     return { message: 'API key revocada' };
   }
 
-  @Delete('keys/:id')
+  @Delete(':id')
   @HttpCode(200)
   async deleteKey(@Req() req: any, @Param('id') id: string) {
     await this.service.deleteApiKey(req.user.companyId, id);
