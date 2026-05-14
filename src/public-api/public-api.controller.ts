@@ -67,7 +67,11 @@ export class ApiKeysController {
 
   @Get()
   async listKeys(@Req() req: any) {
-    return this.service.listApiKeys(req.user.companyId);
+    try {
+      return await this.service.listApiKeys(req.user.companyId);
+    } catch (e: any) {
+      return { debug_error: e.message, meta: e.meta };
+    }
   }
 
   @Post()
