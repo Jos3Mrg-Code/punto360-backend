@@ -26,6 +26,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { SuperAdminModule } from './superadmin/superadmin.module';
 import { CustomersModule } from './customers/customers.module';
 import { CarteraModule } from './cartera/cartera.module';
+import { PublicApiModule } from './public-api/public-api.module';
 
 @Module({
   imports: [PrismaModule, AuthModule, UsersModule, CompaniesModule, BranchesModule, ProductsModule, InventoryModule, SalesModule, ExpensesModule, CashModule, ReportsModule,
@@ -39,6 +40,7 @@ import { CarteraModule } from './cartera/cartera.module';
     SuperAdminModule,
     CustomersModule,
     CarteraModule,
+    PublicApiModule,
   ],
   controllers: [AppController],
   providers: [AppService,
