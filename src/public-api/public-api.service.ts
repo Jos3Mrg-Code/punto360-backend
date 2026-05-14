@@ -108,40 +108,48 @@ export class PublicApiService {
   }
 
   // --- Gestión de API Keys (requiere JWT) ---
+  // Usa SQL crudo para compatibilidad con versiones cacheadas del cliente Prisma
 
   async createApiKey(companyId: string, name: string) {
     const key = this.generateKey();
-    return this.prisma.api_keys.create({
-      data: { company_id: companyId, key, name },
-      select: { id: true, key: true, name: true, created_at: true },
-    });
+    const rows = await this.prisma.$queryRaw<any[]>`
+      INSERT INTO api_keys (company_id, key, name)
+      VALUES (${companyId}::uuid, ${key}, ${name})
+      RETURNING id, key, name, created_at
+    `;
+    return rows[0];
   }
 
   async listApiKeys(companyId: string) {
-    return this.prisma.api_keys.findMany({
-      where: { company_id: companyId },
-      select: {
-        id: true,
-        name: true,
-        is_active: true,
-        created_at: true,
-        key: true,
-      },
-      orderBy: { created_at: 'desc' },
-    });
+    return this.prisma.$queryRaw<any[]>`
+      SELECT id, name, key, is_active, created_at
+      FROM api_keys
+      WHERE company_id = ${companyId}::uuid
+      ORDER BY created_at DESC
+    `;
+  }
+
+  async validateApiKey(key: string): Promise<{ company_id: string } | null> {
+    const rows = await this.prisma.$queryRaw<any[]>`
+      SELECT company_id FROM api_keys
+      WHERE key = ${key} AND is_active = true
+      LIMIT 1
+    `;
+    return rows[0] ?? null;
   }
 
   async revokeApiKey(companyId: string, keyId: string) {
-    return this.prisma.api_keys.updateMany({
-      where: { id: keyId, company_id: companyId },
-      data: { is_active: false },
-    });
+    await this.prisma.$executeRaw`
+      UPDATE api_keys SET is_active = false
+      WHERE id = ${keyId}::uuid AND company_id = ${companyId}::uuid
+    `;
   }
 
   async deleteApiKey(companyId: string, keyId: string) {
-    return this.prisma.api_keys.deleteMany({
-      where: { id: keyId, company_id: companyId },
-    });
+    await this.prisma.$executeRaw`
+      DELETE FROM api_keys
+      WHERE id = ${keyId}::uuid AND company_id = ${companyId}::uuid
+    `;
   }
 
   private generateKey(): string {

@@ -19,16 +19,17 @@ export class ApiKeyGuard implements CanActivate {
       throw new UnauthorizedException('API key requerida');
     }
 
-    const record = await this.prisma.api_keys.findUnique({
-      where: { key: apiKey },
-      select: { company_id: true, is_active: true },
-    });
+    const rows = await this.prisma.$queryRaw<{ company_id: string }[]>`
+      SELECT company_id FROM api_keys
+      WHERE key = ${apiKey} AND is_active = true
+      LIMIT 1
+    `;
 
-    if (!record || !record.is_active) {
+    if (!rows.length) {
       throw new UnauthorizedException('API key inválida o inactiva');
     }
 
-    request.companyId = record.company_id;
+    request.companyId = rows[0].company_id;
     return true;
   }
 }
