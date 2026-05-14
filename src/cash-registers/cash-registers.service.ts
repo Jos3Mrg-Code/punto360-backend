@@ -57,13 +57,14 @@ export class CashRegistersService {
         });
         if (!session) throw new NotFoundException('Sesión de caja no encontrada o ya cerrada.');
 
-        // Calcular ventas del periodo de esta sesión
+        // Calcular ventas del periodo de esta sesión (paid_at garantiza que ventas PENDING
+        // completadas en otro turno se cuenten en el turno correcto)
         const salesInSession = await this.prisma.sales.findMany({
             where: {
                 branch_id: branchId,
                 company_id: user.companyId,
                 status: 'PAID',
-                created_at: { gte: session.opened_at!, lte: new Date() },
+                paid_at: { gte: session.opened_at!, lte: new Date() },
             },
             include: {
                 sale_items: {
@@ -191,25 +192,17 @@ export class CashRegistersService {
                 branch_id: branchId,
                 company_id: user.companyId,
                 status: 'PAID',
-                created_at: { gte: session.opened_at! },
+                paid_at: { gte: session.opened_at! },
             },
             select: {
                 total: true,
                 payment_method: true,
-                sale_items: {
-                    select: { subtotal: true, products: { select: { is_consignment: true } } }
-                },
             },
         });
 
-        const consignmentByLiveSale = (sale: typeof salesInSession[0]) =>
-            sale.sale_items
-                .filter(i => i.products?.is_consignment)
-                .reduce((s, i) => s + Number(i.subtotal ?? 0), 0);
-
-        const cashSales = salesInSession.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + Number(s.total) - consignmentByLiveSale(s), 0);
-        const cardSales = salesInSession.filter(s => s.payment_method === 'CARD').reduce((sum, s) => sum + Number(s.total) - consignmentByLiveSale(s), 0);
-        const transferSales = salesInSession.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + Number(s.total) - consignmentByLiveSale(s), 0);
+        const cashSales = salesInSession.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + Number(s.total), 0);
+        const cardSales = salesInSession.filter(s => s.payment_method === 'CARD').reduce((sum, s) => sum + Number(s.total), 0);
+        const transferSales = salesInSession.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + Number(s.total), 0);
 
         return {
             cashSales,
@@ -291,7 +284,7 @@ export class CashRegistersService {
                     branch_id: branchId,
                     company_id: user.companyId,
                     status: 'PAID',
-                    created_at: { gte: session.opened_at!, lte: closedAt },
+                    paid_at: { gte: session.opened_at!, lte: closedAt },
                 },
                 include: {
                     sale_items: {

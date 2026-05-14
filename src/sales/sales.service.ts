@@ -57,6 +57,7 @@ export class SalesService {
                     payment_method: dto.paymentMethod,
                     status: 'PAID',
                     is_credit: isCredit,
+                    paid_at: new Date(),
                 }
             });
 
@@ -314,6 +315,7 @@ export class SalesService {
                     payment_method: dto.paymentMethod,
                     customer_id: dto.customerId || null,
                     is_credit: isCredit,
+                    paid_at: new Date(),
                 }
             });
         });
