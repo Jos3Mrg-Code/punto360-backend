@@ -34,7 +34,23 @@ export class CashRegistersService {
             throw new BadRequestException('Ya existe una sesión de caja abierta para esta sucursal.');
         }
 
-        return this.prisma.cash_registers.create({
+        // Validar saldo de cartera si se requiere fondo inicial
+        if (dto.opening_amount > 0) {
+            const movements = await this.prisma.cartera_movements.findMany({
+                where: { company_id: user.companyId },
+                select: { type: true, amount: true },
+            });
+            const balance = movements.reduce((sum, m) =>
+                m.type === 'INCOME' ? sum + Number(m.amount) : sum - Number(m.amount), 0);
+
+            if (dto.opening_amount > balance) {
+                throw new BadRequestException(
+                    `Saldo insuficiente en cartera. Disponible: $${balance.toFixed(0)}`
+                );
+            }
+        }
+
+        const session = await this.prisma.cash_registers.create({
             data: {
                 branch_id: branchId,
                 company_id: user.companyId,
@@ -45,6 +61,24 @@ export class CashRegistersService {
                 opened_at: new Date(),
             },
         });
+
+        // Descontar fondo inicial de cartera
+        if (dto.opening_amount > 0) {
+            await this.prisma.cartera_movements.create({
+                data: {
+                    company_id: user.companyId,
+                    branch_id: branchId,
+                    user_id: user.sub,
+                    type: 'EXPENSE',
+                    amount: dto.opening_amount,
+                    reason: `Apertura de caja - Fondo inicial (${new Date().toLocaleDateString('es-CO')})`,
+                    reference_id: session.id,
+                    reference_type: 'CASH_OPENING',
+                },
+            });
+        }
+
+        return session;
     }
 
     /** Cerrar caja y generar resumen del arqueo */
