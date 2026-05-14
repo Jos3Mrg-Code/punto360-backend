@@ -133,7 +133,13 @@ export class SalesService {
                     company_id: user.companyId,
                     branch_id: { in: user.branchIds }
                 },
-                include: {
+                select: {
+                    id: true,
+                    total: true,
+                    payment_method: true,
+                    status: true,
+                    created_at: true,
+                    customer_id: true,
                     sale_items: {
                         include: { products: { select: { name: true } } }
                     },

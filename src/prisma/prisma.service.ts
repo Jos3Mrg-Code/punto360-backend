@@ -8,6 +8,7 @@ export class PrismaService
 
   async onModuleInit() {
     await this.$connect()
+    await this.$executeRawUnsafe(`ALTER TABLE "sales" ADD COLUMN IF NOT EXISTS "paid_at" TIMESTAMP(6)`)
   }
 
   async onModuleDestroy() {
