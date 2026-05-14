@@ -64,7 +64,10 @@ export class CashRegistersService {
                 branch_id: branchId,
                 company_id: user.companyId,
                 status: 'PAID',
-                paid_at: { gte: session.opened_at!, lte: new Date() },
+                OR: [
+                    { paid_at: { gte: session.opened_at!, lte: new Date() } },
+                    { paid_at: null, created_at: { gte: session.opened_at!, lte: new Date() } },
+                ],
             },
             include: {
                 sale_items: {
@@ -192,7 +195,10 @@ export class CashRegistersService {
                 branch_id: branchId,
                 company_id: user.companyId,
                 status: 'PAID',
-                paid_at: { gte: session.opened_at! },
+                OR: [
+                    { paid_at: { gte: session.opened_at! } },
+                    { paid_at: null, created_at: { gte: session.opened_at! } },
+                ],
             },
             select: {
                 total: true,
@@ -284,7 +290,10 @@ export class CashRegistersService {
                     branch_id: branchId,
                     company_id: user.companyId,
                     status: 'PAID',
-                    paid_at: { gte: session.opened_at!, lte: closedAt },
+                    OR: [
+                        { paid_at: { gte: session.opened_at!, lte: closedAt } },
+                        { paid_at: null, created_at: { gte: session.opened_at!, lte: closedAt } },
+                    ],
                 },
                 include: {
                     sale_items: {
