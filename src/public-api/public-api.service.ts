@@ -1,9 +1,28 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
-export class PublicApiService {
+export class PublicApiService implements OnModuleInit {
   constructor(private prisma: PrismaService) {}
+
+  async onModuleInit() {
+    await this.prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS api_keys (
+        id         UUID    NOT NULL DEFAULT uuid_generate_v4(),
+        company_id UUID    NOT NULL,
+        key        TEXT    NOT NULL,
+        name       TEXT    NOT NULL,
+        is_active  BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT api_keys_pkey PRIMARY KEY (id),
+        CONSTRAINT api_keys_company_id_fkey FOREIGN KEY (company_id)
+          REFERENCES companies(id) ON DELETE CASCADE
+      )
+    `);
+    await this.prisma.$executeRawUnsafe(
+      `CREATE UNIQUE INDEX IF NOT EXISTS api_keys_key_key ON api_keys(key)`
+    );
+  }
 
   async getProducts(companyId: string, branchId?: string) {
     const products = await this.prisma.products.findMany({
