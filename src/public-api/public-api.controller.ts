@@ -65,6 +65,12 @@ export class PublicApiController {
 export class ApiKeysController {
   constructor(private readonly service: PublicApiService) {}
 
+  @Public()
+  @Get('ping')
+  ping() {
+    return { ok: true };
+  }
+
   @Get()
   async listKeys(@Req() req: any) {
     try {
