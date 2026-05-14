@@ -3,23 +3,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateSaleDto, HoldSaleDto, CompleteSaleDto } from './dto/create-sale.dto';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
 
-// Colombia es UTC-5 sin DST. Convierte una fecha "YYYY-MM-DD" o Date al inicio/fin del día en UTC.
-function bogotaDayStart(date: string | Date): Date {
-    const [y, m, d] = toBogotateParts(date);
-    return new Date(Date.UTC(y, m - 1, d, 5, 0, 0, 0));
-}
-function bogotaDayEnd(date: string | Date): Date {
-    const [y, m, d] = toBogotateParts(date);
-    return new Date(Date.UTC(y, m - 1, d + 1, 4, 59, 59, 999));
-}
-function toBogotateParts(date: string | Date): [number, number, number] {
-    const str = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'America/Bogota',
-        year: 'numeric', month: '2-digit', day: '2-digit',
-    }).format(typeof date === 'string' ? new Date(date) : date);
-    const [y, m, d] = str.split('-').map(Number);
-    return [y, m, d];
-}
 
 @Injectable()
 export class SalesService {
@@ -123,8 +106,12 @@ export class SalesService {
             throw new BadRequestException("El usuario no tiene una sucursal asignada.");
         }
 
-        const todayStart = bogotaDayStart(new Date());
-        const todayEnd   = bogotaDayEnd(new Date());
+        const now = new Date();
+        // Colombia = UTC-5: midnight Colombia = 05:00 UTC
+        const bogotaMs = now.getTime() - 5 * 60 * 60 * 1000;
+        const bogota = new Date(bogotaMs);
+        const todayStart = new Date(Date.UTC(bogota.getUTCFullYear(), bogota.getUTCMonth(), bogota.getUTCDate(), 5, 0, 0, 0));
+        const monthStart = new Date(Date.UTC(bogota.getUTCFullYear(), bogota.getUTCMonth(), 1, 5, 0, 0, 0));
 
         const baseWhere = {
             company_id: user.companyId,
@@ -132,42 +119,48 @@ export class SalesService {
             status: 'PAID'
         };
 
-        const [todaySales, recentSales, lowStock, totalProducts] = await Promise.all([
-            // Ventas estrictamente de hoy
+        const [todaySales, monthSales, recentSales, lowStock, totalProducts] = await Promise.all([
             this.prisma.sales.findMany({
-                where: { ...baseWhere, created_at: { gte: todayStart, lte: todayEnd } },
+                where: { ...baseWhere, created_at: { gte: todayStart } },
                 select: { total: true, payment_method: true }
             }),
-            // Ultimas 8 ventas (Global de las sucursales del usuario)
             this.prisma.sales.findMany({
-                where: { 
-                    company_id: user.companyId, 
-                    branch_id: { in: user.branchIds } 
+                where: { ...baseWhere, created_at: { gte: monthStart } },
+                select: { total: true }
+            }),
+            this.prisma.sales.findMany({
+                where: {
+                    company_id: user.companyId,
+                    branch_id: { in: user.branchIds }
                 },
-                include: { 
-                    sale_items: { 
-                        include: { products: { select: { name: true } } } 
+                include: {
+                    sale_items: {
+                        include: { products: { select: { name: true } } }
                     },
                     branches: { select: { name: true } }
                 },
                 orderBy: { created_at: 'desc' },
                 take: 8
             }),
-            // Productos con stock bajo en CUALQUIERA de las sedes asignadas
             this.prisma.stock.count({
                 where: { branch_id: { in: user.branchIds }, quantity: { lt: 5 } }
             }),
-            // Total productos activos de la compañía
             this.prisma.products.count({
                 where: { company_id: user.companyId, is_active: true }
             }),
         ]);
 
         const totalHoy = todaySales.reduce((sum, s) => sum + Number(s.total), 0);
+        const efectivoHoy = todaySales
+            .filter(s => s.payment_method === 'CASH')
+            .reduce((sum, s) => sum + Number(s.total), 0);
+        const totalMes = monthSales.reduce((sum, s) => sum + Number(s.total), 0);
 
         return {
             totalHoy,
+            efectivoHoy,
             ticketsHoy: todaySales.length,
+            totalMes,
             lowStock,
             totalProducts,
             recentSales,
@@ -185,14 +178,16 @@ export class SalesService {
         };
 
         if (startDate && endDate) {
-            whereClause.created_at = {
-                gte: bogotaDayStart(startDate),
-                lte: bogotaDayEnd(endDate),
-            };
+            const start = new Date(startDate);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            whereClause.created_at = { gte: start, lte: end };
         } else {
-            const sevenDaysAgo = new Date();
-            sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7);
-            whereClause.created_at = { gte: sevenDaysAgo };
+            const start = new Date();
+            start.setDate(start.getDate() - 7);
+            start.setHours(0, 0, 0, 0);
+            whereClause.created_at = { gte: start };
         }
 
         return this.prisma.sales.findMany({
