@@ -237,19 +237,34 @@ export class CashRegistersService {
             select: {
                 total: true,
                 payment_method: true,
+                sale_items: {
+                    select: {
+                        subtotal: true,
+                        products: { select: { is_consignment: true } },
+                    },
+                },
             },
         });
 
         const cashSales = salesInSession.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + Number(s.total), 0);
         const cardSales = salesInSession.filter(s => s.payment_method === 'CARD').reduce((sum, s) => sum + Number(s.total), 0);
         const transferSales = salesInSession.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + Number(s.total), 0);
+        const totalSales = cashSales + cardSales + transferSales;
+
+        const totalConsignment = salesInSession.reduce((sum, sale) => {
+            return sum + sale.sale_items
+                .filter(item => item.products?.is_consignment)
+                .reduce((s, item) => s + Number(item.subtotal ?? 0), 0);
+        }, 0);
 
         return {
             cashSales,
             cardSales,
             transferSales,
-            totalSales: cashSales + cardSales + transferSales,
+            totalSales,
             ticketsCount: salesInSession.length,
+            totalConsignment,
+            totalNegocio: totalSales - totalConsignment,
         };
     }
 
