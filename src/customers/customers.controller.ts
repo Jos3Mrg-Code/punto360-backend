@@ -23,6 +23,11 @@ export class CustomersController {
         return this.customersService.getSales(id, user);
     }
 
+    @Get('payments/all')
+    getAllPayments(@ActiveUser() user: ActiveUserData) {
+        return this.customersService.getAllPayments(user);
+    }
+
     @Get(':id/payments')
     getPayments(@Param('id') id: string, @ActiveUser() user: ActiveUserData) {
         return this.customersService.getPayments(id, user);

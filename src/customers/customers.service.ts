@@ -86,6 +86,18 @@ export class CustomersService {
         });
     }
 
+    async getAllPayments(user: ActiveUserData) {
+        return this.prisma.customer_payments.findMany({
+            where: { customers: { company_id: user.companyId } },
+            include: {
+                customers: { select: { id: true, name: true } },
+                users: { select: { name: true } },
+            },
+            orderBy: { created_at: 'desc' },
+            take: 500,
+        });
+    }
+
     async create(dto: CreateCustomerDto, user: ActiveUserData) {
         return this.prisma.customers.create({
             data: {
