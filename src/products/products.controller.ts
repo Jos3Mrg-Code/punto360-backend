@@ -25,6 +25,11 @@ export class ProductsController {
         return this.productsService.getNextSku(user);
     }
 
+    @Post('migrate-variant-skus')
+    migrateVariantSkus(@ActiveUser() user: ActiveUserData) {
+        return this.productsService.migrateVariantSkus(user);
+    }
+
     @Get('variant-by-sku/:sku')
     findVariantBySku(@Param('sku') sku: string, @ActiveUser() user: ActiveUserData) {
         return this.productsService.findVariantBySku(sku, user);

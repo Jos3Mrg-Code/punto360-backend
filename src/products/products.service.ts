@@ -404,6 +404,61 @@ export class ProductsService {
         return variant;
     }
 
+    // Migra los SKU/barcode de variantes al formato corto imprimible
+    async migrateVariantSkus(user: ActiveUserData) {
+        const stripAccents = (s: string) =>
+            s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+        const shortCode = (baseSku: string, variantSku: string): string => {
+            if (!variantSku.startsWith(baseSku + '-')) {
+                return stripAccents(variantSku).replace(/[^A-Z0-9]/gi, '').slice(0, 11).toUpperCase();
+            }
+            const suffix = stripAccents(variantSku.slice(baseSku.length + 1));
+            const baseparts = baseSku.split('-');
+            const prefix = baseparts[0].slice(0, 3);
+            const seq = parseInt(baseparts[baseparts.length - 1], 10) || 1;
+            const suffixParts = suffix.split('-').filter(Boolean);
+            const colorAbbr = (suffixParts[0] || '').slice(0, 4).toUpperCase();
+            const size = (suffixParts[suffixParts.length - 1] || '').slice(0, 3).toUpperCase();
+            return `${prefix}${seq}${colorAbbr}${size}`;
+        };
+
+        const products = await this.prisma.products.findMany({
+            where: { company_id: user.companyId, has_variants: true },
+            include: { product_variants: { where: { is_active: { not: false } } } },
+        });
+
+        const updated: string[] = [];
+        const skipped: string[] = [];
+
+        for (const product of products) {
+            const usedCodes = new Set<string>();
+            for (const variant of product.product_variants) {
+                let code = shortCode(product.sku, variant.sku);
+                // Evitar duplicados dentro del mismo producto
+                let attempt = 0;
+                let finalCode = code;
+                while (usedCodes.has(finalCode)) {
+                    attempt++;
+                    finalCode = `${code.slice(0, 10)}${attempt}`;
+                }
+                usedCodes.add(finalCode);
+
+                try {
+                    await this.prisma.product_variants.update({
+                        where: { id: variant.id },
+                        data: { sku: finalCode, barcode: finalCode },
+                    });
+                    updated.push(`${variant.id} → ${finalCode}`);
+                } catch {
+                    skipped.push(`${variant.id} (${variant.sku})`);
+                }
+            }
+        }
+
+        return { updated: updated.length, skipped: skipped.length, details: updated };
+    }
+
     async update(id: string, dto: CreateProductDto, user: ActiveUserData) {
         const product = await this.prisma.products.findFirst({
             where: {
