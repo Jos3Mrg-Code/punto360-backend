@@ -434,6 +434,13 @@ export class ProductsService {
         for (const product of products) {
             const usedCodes = new Set<string>();
             for (const variant of product.product_variants) {
+                // Solo migrar variantes cuyo SKU sigue el patrón largo "{productSku}-..."
+                // Las que ya tienen formato corto o SKU personalizado se ignoran
+                if (!variant.sku.startsWith(product.sku + '-')) {
+                    skipped.push(`${variant.sku} (no sigue patrón largo, se omite)`);
+                    continue;
+                }
+
                 let code = shortCode(product.sku, variant.sku);
                 // Evitar duplicados dentro del mismo producto
                 let attempt = 0;
@@ -449,9 +456,9 @@ export class ProductsService {
                         where: { id: variant.id },
                         data: { sku: finalCode, barcode: finalCode },
                     });
-                    updated.push(`${variant.id} → ${finalCode}`);
+                    updated.push(`${variant.sku} → ${finalCode}`);
                 } catch {
-                    skipped.push(`${variant.id} (${variant.sku})`);
+                    skipped.push(`${variant.sku} (error al actualizar)`);
                 }
             }
         }
