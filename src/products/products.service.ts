@@ -91,7 +91,7 @@ export class ProductsService {
                     where: { branch_id: { in: user.branchIds } }
                 },
                 product_variants: {
-                    where: { is_active: true },
+                    where: { is_active: { not: false } },
                     include: {
                         stock: {
                             where: { branch_id: { in: user.branchIds } }
