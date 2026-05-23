@@ -405,7 +405,7 @@ export class ProductsService {
     }
 
     // Migra los SKU/barcode de variantes al formato corto imprimible
-    async migrateVariantSkus(user: ActiveUserData) {
+    async migrateVariantSkus(productId: string, user: ActiveUserData) {
         const stripAccents = (s: string) =>
             s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
@@ -424,9 +424,11 @@ export class ProductsService {
         };
 
         const products = await this.prisma.products.findMany({
-            where: { company_id: user.companyId, has_variants: true },
+            where: { id: productId, company_id: user.companyId, has_variants: true },
             include: { product_variants: { where: { is_active: { not: false } } } },
         });
+
+        if (!products.length) throw new NotFoundException('Producto no encontrado o no tiene variantes');
 
         const updated: string[] = [];
         const skipped: string[] = [];
