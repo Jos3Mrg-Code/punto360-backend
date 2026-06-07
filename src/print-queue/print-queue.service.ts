@@ -7,6 +7,7 @@ export interface AddQueueItemDto {
     label: string;
     sku: string;
     quantity: number;
+    sale_price?: number;
 }
 
 @Injectable()
@@ -23,6 +24,7 @@ export class PrintQueueService {
                         label: item.label,
                         sku: item.sku,
                         quantity: item.quantity,
+                        sale_price: item.sale_price ?? 0,
                     },
                 })
             )
