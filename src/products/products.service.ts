@@ -322,27 +322,32 @@ export class ProductsService {
 
         const branchId = user.branchIds[0];
 
-        const results = await Promise.allSettled(
-            dtos.map(dto => this.prisma.product_variants.create({
-                data: {
-                    product_id: productId,
-                    sku: dto.sku,
-                    barcode: dto.barcode || null,
-                    sale_price: dto.sale_price,
-                    cost_price: dto.cost_price ?? 0,
-                    is_default: dto.is_default ?? false,
-                    values: { create: dto.attribute_value_ids.map(id => ({ attribute_value_id: id })) },
-                    stock: { create: { branch_id: branchId, quantity: dto.stock ?? 0 } },
-                },
-                include: {
-                    values: { include: { attribute_value: { include: { attribute: true } } } },
-                    stock: true,
-                },
-            }))
-        );
+        let created: any[] = [];
+        let errors = 0;
 
-        const created = results.filter(r => r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<any>).value);
-        const errors  = results.filter(r => r.status === 'rejected').length;
+        try {
+            created = await this.prisma.$transaction(
+                dtos.map(dto => this.prisma.product_variants.create({
+                    data: {
+                        product_id: productId,
+                        sku: dto.sku,
+                        barcode: dto.barcode || null,
+                        sale_price: dto.sale_price,
+                        cost_price: dto.cost_price ?? 0,
+                        is_default: dto.is_default ?? false,
+                        values: { create: dto.attribute_value_ids.map(id => ({ attribute_value_id: id })) },
+                        stock: { create: { branch_id: branchId, quantity: dto.stock ?? 0 } },
+                    },
+                    include: {
+                        values: { include: { attribute_value: { include: { attribute: true } } } },
+                        stock: true,
+                    },
+                }))
+            );
+        } catch {
+            errors = dtos.length;
+        }
+
         return { created: created.length, errors, variants: created };
     }
 
