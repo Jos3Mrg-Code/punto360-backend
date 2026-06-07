@@ -366,7 +366,7 @@ export class ProductsService {
             }),
         ]);
 
-        return { created: created.length, errors: dtos.length - created.length, variants: created };
+        return { created: created.length, errors: 0, variants: created };
     }
 
     async updateVariant(variantId: string, dto: UpdateVariantDto, user: ActiveUserData) {
