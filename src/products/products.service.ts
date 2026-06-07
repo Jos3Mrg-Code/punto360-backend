@@ -389,6 +389,50 @@ export class ProductsService {
         return { ok: true };
     }
 
+    async getVariantMap(user: ActiveUserData) {
+        const variants = await this.prisma.product_variants.findMany({
+            where: {
+                is_active: true,
+                products: { company_id: user.companyId, is_active: true },
+            },
+            select: {
+                id: true,
+                sku: true,
+                barcode: true,
+                sale_price: true,
+                product_id: true,
+                products: { select: { name: true, unit_type: true } },
+                stock: {
+                    where: { branch_id: { in: user.branchIds } },
+                    select: { quantity: true },
+                },
+                values: {
+                    select: {
+                        attribute_value: {
+                            select: { value: true },
+                        },
+                    },
+                },
+            },
+        });
+
+        const map: Record<string, object> = {};
+        for (const v of variants) {
+            const entry = {
+                id:          v.id,
+                sku:         v.sku,
+                sale_price:  Number(v.sale_price),
+                product_id:  v.product_id,
+                unit_type:   v.products.unit_type,
+                stock:       Number(v.stock[0]?.quantity ?? 0),
+                label:       v.values.map(x => x.attribute_value.value).join(" / "),
+            };
+            if (v.sku)     map[v.sku]     = entry;
+            if (v.barcode) map[v.barcode] = entry;
+        }
+        return map;
+    }
+
     async scanByBarcode(code: string, user: ActiveUserData) {
         // Busca producto y variante en paralelo; acepta tanto barcode como SKU
         const [product, variant] = await Promise.all([
