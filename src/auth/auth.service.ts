@@ -68,6 +68,7 @@ export class AuthService {
       companyName: user.companies?.name || null,
       branchIds,
       permissions,
+      saleTypeEnabled: (user.companies as any)?.sale_type_enabled ?? false,
     };
 
     return {

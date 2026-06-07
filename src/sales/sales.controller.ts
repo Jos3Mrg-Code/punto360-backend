@@ -25,9 +25,10 @@ export class SalesController {
   getSalesHistory(
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
+    @Query('saleType') saleType: string,
     @ActiveUser() user: ActiveUserData,
   ) {
-    return this.salesService.getSalesHistory(startDate, endDate, user);
+    return this.salesService.getSalesHistory(startDate, endDate, user, saleType);
   }
 
   @Put(':id/cancel')

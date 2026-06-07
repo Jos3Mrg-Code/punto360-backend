@@ -31,6 +31,10 @@ export class CreateSaleDto {
     @IsOptional()
     @IsString()
     customerId?: string;
+
+    @IsOptional()
+    @IsString()
+    saleType?: string;
 }
 
 export class HoldSaleDto {

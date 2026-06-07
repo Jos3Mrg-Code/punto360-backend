@@ -40,6 +40,7 @@ export class SalesService {
                     payment_method: dto.paymentMethod,
                     status: 'PAID',
                     is_credit: isCredit,
+                    sale_type: dto.saleType || 'WHOLESALE',
                     paid_at: new Date(),
                 }
             });
@@ -173,7 +174,7 @@ export class SalesService {
         };
     }
 
-    async getSalesHistory(startDate: string, endDate: string, user: ActiveUserData) {
+    async getSalesHistory(startDate: string, endDate: string, user: ActiveUserData, saleType?: string) {
         if (!user.branchIds || user.branchIds.length === 0) {
             throw new BadRequestException("El usuario no tiene sucursales asignadas.");
         }
@@ -182,6 +183,10 @@ export class SalesService {
             company_id: user.companyId,
             branch_id: { in: user.branchIds },
         };
+
+        if (saleType && (saleType === 'WHOLESALE' || saleType === 'RETAIL')) {
+            whereClause.sale_type = saleType;
+        }
 
         if (startDate && endDate) {
             const start = new Date(startDate);

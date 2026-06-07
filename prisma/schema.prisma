@@ -83,13 +83,14 @@ model categories {
 }
 
 model companies {
-  id              String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  name            String
-  document_number String?
-  phone           String?
-  email           String?
-  address         String?
-  created_at      DateTime?    @default(now()) @db.Timestamp(6)
+  id                  String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name                String
+  document_number     String?
+  phone               String?
+  email               String?
+  address             String?
+  sale_type_enabled   Boolean      @default(false)
+  created_at          DateTime?    @default(now()) @db.Timestamp(6)
   branches        branches[]
   categories      categories[]
   customers       customers[]
@@ -320,6 +321,7 @@ model sales {
   payment_method String?
   status         String?      @default("PAID")
   is_credit      Boolean?     @default(false)
+  sale_type      String?      @default("WHOLESALE")
   created_at     DateTime?    @default(now()) @db.Timestamp(6)
   paid_at        DateTime?    @db.Timestamp(6)
   sale_items     sale_items[]

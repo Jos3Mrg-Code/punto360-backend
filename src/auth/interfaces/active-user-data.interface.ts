@@ -38,4 +38,9 @@ export interface ActiveUserData {
    * Matriz de permisos de cadena del usuario
    */
   permissions: string[];
+
+  /**
+   * Indica si la empresa tiene habilitada la clasificación de ventas (detal/mayorista)
+   */
+  saleTypeEnabled: boolean;
 }
