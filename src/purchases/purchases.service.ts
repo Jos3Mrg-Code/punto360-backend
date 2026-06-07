@@ -207,7 +207,7 @@ export class PurchasesService {
     }
 
     /** Registrar un abono a una compra */
-    async addPayment(purchaseId: string, amount: number, method: string, user: ActiveUserData) {
+    async addPayment(purchaseId: string, amount: number, method: string, paymentSource: string, user: ActiveUserData) {
         const branchId = user.branchIds?.[0];
         const purchase = await this.prisma.purchases.findUnique({
             where: { id: purchaseId },
@@ -244,20 +244,34 @@ export class PurchasesService {
                 }
             });
 
-            if (method === 'CASH') {
+            const purchaseRef = `Abono a deuda Compra #${purchaseId.split('-')[0]}${purchase.suppliers?.name ? ` [${purchase.suppliers.name}]` : ''}`;
+
+            if (paymentSource === 'CARTERA') {
+                await tx.cartera_movements.create({
+                    data: {
+                        company_id: user.companyId,
+                        branch_id: branchId,
+                        user_id: user.sub,
+                        type: 'EXPENSE',
+                        amount: amount,
+                        reason: purchaseRef,
+                        reference_id: purchaseId,
+                        reference_type: 'PURCHASE',
+                    },
+                });
+            } else if (method === 'CASH') {
                 const activeSession = await tx.cash_registers.findFirst({
                     where: { branch_id: branchId, company_id: user.companyId, status: 'OPEN' }
                 });
 
                 if (activeSession) {
-                    const supplierPart = purchase.suppliers?.name ? ` [${purchase.suppliers.name}]` : "";
                     await tx.cash_movements.create({
                         data: {
                             cash_register_id: activeSession.id,
                             user_id: user.sub,
                             type: 'EXPENSE',
                             amount: amount,
-                            reason: `Abono a deuda Compra #${purchaseId.split('-')[0]}${supplierPart}`
+                            reason: purchaseRef,
                         }
                     });
                 }

@@ -35,8 +35,9 @@ export class PurchasesController {
         @Param('id') id: string,
         @Body('amount') amount: number,
         @Body('method') method: string,
+        @Body('paymentSource') paymentSource: string,
         @ActiveUser() user: ActiveUserData,
     ) {
-        return this.purchasesService.addPayment(id, amount, method, user);
+        return this.purchasesService.addPayment(id, amount, method, paymentSource, user);
     }
 }
