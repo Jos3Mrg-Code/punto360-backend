@@ -322,7 +322,14 @@ export class ProductsService {
 
         const branchId = user.branchIds[0];
 
-        // 1. Detectar SKUs que ya existen en cualquier producto de la empresa
+        // 1a. Detectar duplicados dentro del propio batch
+        const batchSkuCount = dtos.reduce((acc, d) => { acc[d.sku] = (acc[d.sku] || 0) + 1; return acc; }, {} as Record<string, number>);
+        const inBatchDups = Object.keys(batchSkuCount).filter(sku => batchSkuCount[sku] > 1);
+        if (inBatchDups.length > 0) {
+            return { created: 0, errors: inBatchDups.length, duplicateSkus: inBatchDups, variants: [] };
+        }
+
+        // 1b. Detectar SKUs que ya existen en cualquier producto de la empresa
         const existing = await this.prisma.product_variants.findMany({
             where: {
                 products: { company_id: user.companyId },
