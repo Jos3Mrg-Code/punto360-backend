@@ -322,33 +322,51 @@ export class ProductsService {
 
         const branchId = user.branchIds[0];
 
-        let created: any[] = [];
-        let errors = 0;
+        // 1. Bulk insert variants (single query)
+        await this.prisma.product_variants.createMany({
+            data: dtos.map(dto => ({
+                product_id: productId,
+                sku: dto.sku,
+                barcode: dto.barcode || null,
+                sale_price: dto.sale_price,
+                cost_price: dto.cost_price ?? 0,
+                is_default: dto.is_default ?? false,
+            })),
+            skipDuplicates: true,
+        });
 
-        try {
-            created = await this.prisma.$transaction(
-                dtos.map(dto => this.prisma.product_variants.create({
-                    data: {
-                        product_id: productId,
-                        sku: dto.sku,
-                        barcode: dto.barcode || null,
-                        sale_price: dto.sale_price,
-                        cost_price: dto.cost_price ?? 0,
-                        is_default: dto.is_default ?? false,
-                        values: { create: dto.attribute_value_ids.map(id => ({ attribute_value_id: id })) },
-                        stock: { create: { branch_id: branchId, quantity: dto.stock ?? 0 } },
-                    },
-                    include: {
-                        values: { include: { attribute_value: { include: { attribute: true } } } },
-                        stock: true,
-                    },
-                }))
-            );
-        } catch {
-            errors = dtos.length;
-        }
+        // 2. Fetch created variants to get their IDs
+        const created = await this.prisma.product_variants.findMany({
+            where: { product_id: productId, sku: { in: dtos.map(d => d.sku) } },
+        });
+        const skuToId = Object.fromEntries(created.map(v => [v.sku, v.id]));
 
-        return { created: created.length, errors, variants: created };
+        // 3. Bulk insert stock + attribute values in parallel (2 queries)
+        await Promise.all([
+            this.prisma.variant_stock.createMany({
+                data: dtos
+                    .filter(d => skuToId[d.sku])
+                    .map(dto => ({
+                        variant_id: skuToId[dto.sku],
+                        branch_id: branchId,
+                        quantity: dto.stock ?? 0,
+                    })),
+                skipDuplicates: true,
+            }),
+            this.prisma.variant_attribute_values.createMany({
+                data: dtos.flatMap(dto =>
+                    dto.attribute_value_ids
+                        .filter(() => skuToId[dto.sku])
+                        .map(avId => ({
+                            variant_id: skuToId[dto.sku],
+                            attribute_value_id: avId,
+                        }))
+                ),
+                skipDuplicates: true,
+            }),
+        ]);
+
+        return { created: created.length, errors: dtos.length - created.length, variants: created };
     }
 
     async updateVariant(variantId: string, dto: UpdateVariantDto, user: ActiveUserData) {
