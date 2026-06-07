@@ -89,6 +89,11 @@ export class ProductsController {
         return this.productsService.getVariants(id, user);
     }
 
+    @Post(':id/variants/batch')
+    createVariantsBatch(@Param('id') id: string, @Body('variants') variants: CreateVariantDto[], @ActiveUser() user: ActiveUserData) {
+        return this.productsService.createVariantsBatch(id, variants, user);
+    }
+
     @Post(':id/variants')
     createVariant(@Param('id') id: string, @Body() dto: CreateVariantDto, @ActiveUser() user: ActiveUserData) {
         return this.productsService.createVariant(id, dto, user);

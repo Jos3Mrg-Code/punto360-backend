@@ -314,6 +314,38 @@ export class ProductsService {
         });
     }
 
+    async createVariantsBatch(productId: string, dtos: CreateVariantDto[], user: ActiveUserData) {
+        const product = await this.prisma.products.findFirst({
+            where: { id: productId, company_id: user.companyId },
+        });
+        if (!product) throw new NotFoundException('Producto no encontrado');
+
+        const branchId = user.branchIds[0];
+
+        const results = await Promise.allSettled(
+            dtos.map(dto => this.prisma.product_variants.create({
+                data: {
+                    product_id: productId,
+                    sku: dto.sku,
+                    barcode: dto.barcode || null,
+                    sale_price: dto.sale_price,
+                    cost_price: dto.cost_price ?? 0,
+                    is_default: dto.is_default ?? false,
+                    values: { create: dto.attribute_value_ids.map(id => ({ attribute_value_id: id })) },
+                    stock: { create: { branch_id: branchId, quantity: dto.stock ?? 0 } },
+                },
+                include: {
+                    values: { include: { attribute_value: { include: { attribute: true } } } },
+                    stock: true,
+                },
+            }))
+        );
+
+        const created = results.filter(r => r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<any>).value);
+        const errors  = results.filter(r => r.status === 'rejected').length;
+        return { created: created.length, errors, variants: created };
+    }
+
     async updateVariant(variantId: string, dto: UpdateVariantDto, user: ActiveUserData) {
         const variant = await this.prisma.product_variants.findFirst({
             where: { id: variantId, products: { company_id: user.companyId } },
@@ -357,32 +389,34 @@ export class ProductsService {
         return { ok: true };
     }
 
-    async scanByBarcode(barcode: string, user: ActiveUserData) {
-        // Buscar producto simple por barcode
-        const product = await this.prisma.products.findFirst({
-            where: { barcode, company_id: user.companyId, is_active: true },
-            include: {
-                stock: { where: { branch_id: { in: user.branchIds } } },
-            },
-        });
-        if (product) return { type: 'product' as const, data: product };
+    async scanByBarcode(code: string, user: ActiveUserData) {
+        // Busca producto y variante en paralelo; acepta tanto barcode como SKU
+        const [product, variant] = await Promise.all([
+            this.prisma.products.findFirst({
+                where: {
+                    company_id: user.companyId,
+                    is_active: true,
+                    OR: [{ barcode: code }, { sku: code }],
+                },
+                include: { stock: { where: { branch_id: { in: user.branchIds } } } },
+            }),
+            this.prisma.product_variants.findFirst({
+                where: {
+                    is_active: true,
+                    OR: [{ barcode: code }, { sku: code }],
+                    products: { company_id: user.companyId, is_active: true },
+                },
+                include: {
+                    products: { select: { id: true, name: true, unit_type: true } },
+                    values: { include: { attribute_value: { include: { attribute: true } } } },
+                    stock: { where: { branch_id: { in: user.branchIds } } },
+                },
+            }),
+        ]);
 
-        // Buscar variante por barcode
-        const variant = await this.prisma.product_variants.findFirst({
-            where: {
-                barcode,
-                is_active: true,
-                products: { company_id: user.companyId, is_active: true },
-            },
-            include: {
-                products: { select: { id: true, name: true, unit_type: true } },
-                values: { include: { attribute_value: { include: { attribute: true } } } },
-                stock: { where: { branch_id: { in: user.branchIds } } },
-            },
-        });
         if (variant) return { type: 'variant' as const, data: variant };
-
-        throw new NotFoundException('Código de barras no encontrado');
+        if (product) return { type: 'product' as const, data: product };
+        throw new NotFoundException('Código no encontrado');
     }
 
     async findVariantBySku(sku: string, user: ActiveUserData) {
