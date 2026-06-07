@@ -389,6 +389,53 @@ export class ProductsService {
         return { ok: true };
     }
 
+    async getAttributeTemplates(user: ActiveUserData) {
+        return this.prisma.attribute_templates.findMany({
+            where: { company_id: user.companyId },
+            orderBy: [{ position: 'asc' }, { created_at: 'asc' }],
+        });
+    }
+
+    async createAttributeTemplate(name: string, values: string[], user: ActiveUserData) {
+        return this.prisma.attribute_templates.create({
+            data: { company_id: user.companyId, name, values },
+        });
+    }
+
+    async deleteAttributeTemplate(id: string, user: ActiveUserData) {
+        await this.prisma.attribute_templates.deleteMany({
+            where: { id, company_id: user.companyId },
+        });
+        return { ok: true };
+    }
+
+    async applyAttributeTemplates(productId: string, user: ActiveUserData) {
+        const product = await this.prisma.products.findFirst({
+            where: { id: productId, company_id: user.companyId },
+        });
+        if (!product) throw new NotFoundException('Producto no encontrado');
+
+        const templates = await this.prisma.attribute_templates.findMany({
+            where: { company_id: user.companyId },
+            orderBy: [{ position: 'asc' }, { created_at: 'asc' }],
+        });
+
+        const results = await Promise.allSettled(
+            templates.map(t => this.prisma.product_attributes.create({
+                data: {
+                    product_id: productId,
+                    name: t.name,
+                    values: { create: t.values.map((v, i) => ({ value: v, position: i })) },
+                },
+                include: { values: true },
+            }))
+        );
+
+        return results
+            .filter(r => r.status === 'fulfilled')
+            .map(r => (r as PromiseFulfilledResult<any>).value);
+    }
+
     async getVariantMap(user: ActiveUserData) {
         const variants = await this.prisma.product_variants.findMany({
             where: {

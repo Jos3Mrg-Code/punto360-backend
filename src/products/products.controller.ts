@@ -35,6 +35,30 @@ export class ProductsController {
         return this.productsService.getVariantMap(user);
     }
 
+    @Get('attribute-templates')
+    getAttributeTemplates(@ActiveUser() user: ActiveUserData) {
+        return this.productsService.getAttributeTemplates(user);
+    }
+
+    @Post('attribute-templates')
+    createAttributeTemplate(
+        @Body('name') name: string,
+        @Body('values') values: string[],
+        @ActiveUser() user: ActiveUserData,
+    ) {
+        return this.productsService.createAttributeTemplate(name, values, user);
+    }
+
+    @Delete('attribute-templates/:id')
+    deleteAttributeTemplate(@Param('id') id: string, @ActiveUser() user: ActiveUserData) {
+        return this.productsService.deleteAttributeTemplate(id, user);
+    }
+
+    @Post(':id/apply-templates')
+    applyAttributeTemplates(@Param('id') id: string, @ActiveUser() user: ActiveUserData) {
+        return this.productsService.applyAttributeTemplates(id, user);
+    }
+
     @Get('variant-by-sku/:sku')
     findVariantBySku(@Param('sku') sku: string, @ActiveUser() user: ActiveUserData) {
         return this.productsService.findVariantBySku(sku, user);
