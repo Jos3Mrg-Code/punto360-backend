@@ -286,9 +286,9 @@ export class ProductsService {
         if (!product) throw new NotFoundException('Producto no encontrado');
 
         const existing = await this.prisma.product_variants.findFirst({
-            where: { product_id: productId, sku: dto.sku },
+            where: { products: { company_id: user.companyId }, sku: dto.sku },
         });
-        if (existing) throw new BadRequestException(`El SKU "${dto.sku}" ya existe en este producto`);
+        if (existing) throw new BadRequestException(`El SKU "${dto.sku}" ya existe en otro producto de la tienda`);
 
         const branchId = user.branchIds[0];
 
@@ -322,9 +322,12 @@ export class ProductsService {
 
         const branchId = user.branchIds[0];
 
-        // 1. Detectar SKUs que ya existen para este producto
+        // 1. Detectar SKUs que ya existen en cualquier producto de la empresa
         const existing = await this.prisma.product_variants.findMany({
-            where: { product_id: productId, sku: { in: dtos.map(d => d.sku) } },
+            where: {
+                products: { company_id: user.companyId },
+                sku: { in: dtos.map(d => d.sku) },
+            },
             select: { sku: true },
         });
         const existingSkus = new Set(existing.map(v => v.sku));
