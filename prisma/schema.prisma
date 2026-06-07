@@ -105,6 +105,7 @@ model companies {
   subscriptions        subscriptions[]
   api_keys             api_keys[]
   attribute_templates  attribute_templates[]
+  print_queue          print_queue[]
 }
 
 model attribute_templates {
@@ -113,6 +114,17 @@ model attribute_templates {
   name       String
   values     String[]
   position   Int       @default(0)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  companies  companies @relation(fields: [company_id], references: [id], onDelete: Cascade)
+}
+
+model print_queue {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  company_id String    @db.Uuid
+  variant_id String?   @db.Uuid
+  label      String
+  sku        String
+  quantity   Int       @default(1)
   created_at DateTime? @default(now()) @db.Timestamp(6)
   companies  companies @relation(fields: [company_id], references: [id], onDelete: Cascade)
 }
