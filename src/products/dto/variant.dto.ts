@@ -15,6 +15,11 @@ export class AddAttributeValueDto {
     value: string;
 }
 
+export class UpdateAttributeValueDto {
+    @IsString()
+    value: string;
+}
+
 export class CreateVariantDto {
     @IsString()
     sku: string;

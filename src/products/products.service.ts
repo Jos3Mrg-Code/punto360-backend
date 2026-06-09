@@ -245,6 +245,14 @@ export class ProductsService {
         return attr;
     }
 
+    async updateAttributeValue(valueId: string, value: string, user: ActiveUserData) {
+        const existing = await this.prisma.attribute_values.findFirst({
+            where: { id: valueId, attribute: { products: { company_id: user.companyId } } },
+        });
+        if (!existing) throw new NotFoundException('Valor no encontrado');
+        return this.prisma.attribute_values.update({ where: { id: valueId }, data: { value } });
+    }
+
     async addAttributeValue(productId: string, attrId: string, value: string, user: ActiveUserData) {
         const attr = await this.prisma.product_attributes.findFirst({
             where: { id: attrId, product_id: productId, products: { company_id: user.companyId } },

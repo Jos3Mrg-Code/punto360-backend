@@ -12,7 +12,7 @@ import {
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ImportProductsDto } from './dto/import-products.dto';
-import { AddAttributeValueDto, CreateAttributeDto, CreateVariantDto, UpdateVariantDto, UpdateVariantStockDto } from './dto/variant.dto';
+import { AddAttributeValueDto, CreateAttributeDto, CreateVariantDto, UpdateAttributeValueDto, UpdateVariantDto, UpdateVariantStockDto } from './dto/variant.dto';
 import { ActiveUser } from '../auth/decorators/active-user.decorator';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
 
@@ -104,6 +104,15 @@ export class ProductsController {
     @Post(':id/attributes')
     addAttribute(@Param('id') id: string, @Body() dto: CreateAttributeDto, @ActiveUser() user: ActiveUserData) {
         return this.productsService.addAttribute(id, dto, user);
+    }
+
+    @Patch('attribute-values/:valueId')
+    updateAttributeValue(
+        @Param('valueId') valueId: string,
+        @Body() dto: UpdateAttributeValueDto,
+        @ActiveUser() user: ActiveUserData,
+    ) {
+        return this.productsService.updateAttributeValue(valueId, dto.value, user);
     }
 
     @Post(':id/attributes/:attrId/values')
