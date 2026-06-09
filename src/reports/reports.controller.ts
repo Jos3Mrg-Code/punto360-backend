@@ -50,4 +50,34 @@ export class ReportsController {
   ) {
     return this.reportsService.getCategoryStats(startDate, endDate, user);
   }
+
+  @Get('payment-methods')
+  @Permissions('reports.view')
+  getPaymentMethods(@Query('startDate') s: string, @Query('endDate') e: string, @ActiveUser() user: ActiveUserData) {
+    return this.reportsService.getPaymentMethods(s, e, user);
+  }
+
+  @Get('sales-by-hour')
+  @Permissions('reports.view')
+  getSalesByHour(@Query('startDate') s: string, @Query('endDate') e: string, @ActiveUser() user: ActiveUserData) {
+    return this.reportsService.getSalesByHour(s, e, user);
+  }
+
+  @Get('sales-by-weekday')
+  @Permissions('reports.view')
+  getSalesByWeekday(@Query('startDate') s: string, @Query('endDate') e: string, @ActiveUser() user: ActiveUserData) {
+    return this.reportsService.getSalesByWeekday(s, e, user);
+  }
+
+  @Get('top-customers')
+  @Permissions('reports.view')
+  getTopCustomers(@Query('startDate') s: string, @Query('endDate') e: string, @Query('limit') limit: number, @ActiveUser() user: ActiveUserData) {
+    return this.reportsService.getTopCustomers(s, e, user, limit);
+  }
+
+  @Get('inventory-kpis')
+  @Permissions('reports.view')
+  getInventoryKpis(@ActiveUser() user: ActiveUserData) {
+    return this.reportsService.getInventoryKpis(user);
+  }
 }
