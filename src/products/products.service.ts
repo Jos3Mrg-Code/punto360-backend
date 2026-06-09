@@ -245,6 +245,19 @@ export class ProductsService {
         return attr;
     }
 
+    async addAttributeValue(productId: string, attrId: string, value: string, user: ActiveUserData) {
+        const attr = await this.prisma.product_attributes.findFirst({
+            where: { id: attrId, product_id: productId, products: { company_id: user.companyId } },
+            include: { values: { orderBy: { position: 'asc' } } },
+        });
+        if (!attr) throw new NotFoundException('Atributo no encontrado');
+
+        const nextPosition = attr.values.length;
+        return this.prisma.attribute_values.create({
+            data: { attribute_id: attrId, value, position: nextPosition },
+        });
+    }
+
     async getAttributes(productId: string, user: ActiveUserData) {
         const product = await this.prisma.products.findFirst({
             where: { id: productId, company_id: user.companyId },

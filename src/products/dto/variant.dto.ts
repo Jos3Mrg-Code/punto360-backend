@@ -10,6 +10,11 @@ export class CreateAttributeDto {
     values: string[];
 }
 
+export class AddAttributeValueDto {
+    @IsString()
+    value: string;
+}
+
 export class CreateVariantDto {
     @IsString()
     sku: string;
