@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body } from '@nestjs/common';
 import { CarteraService } from './cartera.service';
-import { AddCarteraExpenseDto, ConvertTransferDto } from './dto/cartera.dto';
+import { AddCarteraExpenseDto, AddCarteraIncomeDto, ConvertTransferDto } from './dto/cartera.dto';
 import { ActiveUser } from '../auth/decorators/active-user.decorator';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
 
@@ -19,6 +19,14 @@ export class CarteraController {
         @ActiveUser() user: ActiveUserData,
     ) {
         return this.carteraService.addExpense(dto, user);
+    }
+
+    @Post('income')
+    addIncome(
+        @Body() dto: AddCarteraIncomeDto,
+        @ActiveUser() user: ActiveUserData,
+    ) {
+        return this.carteraService.addIncome(dto, user);
     }
 
     @Post('convert')

@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AddCarteraExpenseDto, ConvertTransferDto } from './dto/cartera.dto';
+import { AddCarteraExpenseDto, AddCarteraIncomeDto, ConvertTransferDto } from './dto/cartera.dto';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
 
 @Injectable()
@@ -60,6 +60,21 @@ export class CarteraService {
                 amount: dto.amount,
                 reason: dto.reason,
                 reference_type: 'MANUAL_EXPENSE',
+            },
+        });
+    }
+
+    async addIncome(dto: AddCarteraIncomeDto, user: ActiveUserData) {
+        const branchId = user.branchIds?.[0];
+        return this.prisma.cartera_movements.create({
+            data: {
+                company_id: user.companyId,
+                branch_id: branchId ?? null,
+                user_id: user.sub,
+                type: 'INCOME',
+                amount: dto.amount,
+                reason: dto.reason,
+                reference_type: 'MANUAL_INCOME',
             },
         });
     }

@@ -13,6 +13,15 @@ export class AddCarteraExpenseDto {
     notes?: string;
 }
 
+export class AddCarteraIncomeDto {
+    @IsNumber()
+    @Min(0.01)
+    amount: number;
+
+    @IsString()
+    reason: string;
+}
+
 export class ConvertTransferDto {
     @IsNumber()
     @Min(0.01)
