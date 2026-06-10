@@ -29,6 +29,7 @@ import { CarteraModule } from './cartera/cartera.module';
 import { PublicApiModule } from './public-api/public-api.module';
 import { ShopifyOAuthModule } from './shopify-oauth/shopify-oauth.module';
 import { PrintQueueModule } from './print-queue/print-queue.module';
+import { ExchangesModule } from './exchanges/exchanges.module';
 
 @Module({
   imports: [PrismaModule, AuthModule, UsersModule, CompaniesModule, BranchesModule, ProductsModule, InventoryModule, SalesModule, ExpensesModule, CashModule, ReportsModule,
@@ -45,6 +46,7 @@ import { PrintQueueModule } from './print-queue/print-queue.module';
     PublicApiModule,
     ShopifyOAuthModule,
     PrintQueueModule,
+    ExchangesModule,
   ],
   controllers: [AppController],
   providers: [AppService,

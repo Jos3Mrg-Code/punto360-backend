@@ -1,0 +1,141 @@
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateExchangeDto } from './dto/create-exchange.dto';
+import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
+
+@Injectable()
+export class ExchangesService {
+  constructor(private prisma: PrismaService) {}
+
+  async createExchange(dto: CreateExchangeDto, user: ActiveUserData) {
+    const branchId = user.branchIds?.[0];
+    if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
+
+    return this.prisma.$transaction(async (tx) => {
+      // Devolver stock del producto retornado
+      if (dto.returnedVariantId) {
+        await tx.variant_stock.upsert({
+          where: { variant_id_branch_id: { variant_id: dto.returnedVariantId, branch_id: branchId } },
+          update: { quantity: { increment: dto.returnedQuantity } },
+          create: { variant_id: dto.returnedVariantId, branch_id: branchId, quantity: dto.returnedQuantity },
+        });
+      } else {
+        await tx.stock.upsert({
+          where: { product_id_branch_id: { product_id: dto.returnedProductId, branch_id: branchId } },
+          update: { quantity: { increment: dto.returnedQuantity } },
+          create: { product_id: dto.returnedProductId, branch_id: branchId, quantity: dto.returnedQuantity },
+        });
+      }
+
+      // Descontar stock del producto nuevo
+      if (dto.newVariantId) {
+        const vs = await tx.variant_stock.findUnique({
+          where: { variant_id_branch_id: { variant_id: dto.newVariantId, branch_id: branchId } },
+        });
+        if (!vs || Number(vs.quantity) < dto.newQuantity) {
+          throw new BadRequestException('Stock insuficiente para el producto nuevo.');
+        }
+        await tx.variant_stock.update({
+          where: { variant_id_branch_id: { variant_id: dto.newVariantId, branch_id: branchId } },
+          data: { quantity: { decrement: dto.newQuantity } },
+        });
+      } else {
+        const s = await tx.stock.findUnique({
+          where: { product_id_branch_id: { product_id: dto.newProductId, branch_id: branchId } },
+        });
+        if (!s || Number(s.quantity) < dto.newQuantity) {
+          throw new BadRequestException('Stock insuficiente para el producto nuevo.');
+        }
+        await tx.stock.update({
+          where: { product_id_branch_id: { product_id: dto.newProductId, branch_id: branchId } },
+          data: { quantity: { decrement: dto.newQuantity } },
+        });
+      }
+
+      const difference = dto.newPrice - dto.returnedPrice;
+
+      return tx.exchanges.create({
+        data: {
+          company_id: user.companyId,
+          branch_id: branchId,
+          user_id: user.sub,
+          returned_product_id: dto.returnedProductId,
+          returned_variant_id: dto.returnedVariantId ?? null,
+          returned_quantity: dto.returnedQuantity,
+          returned_price: dto.returnedPrice,
+          new_product_id: dto.newProductId,
+          new_variant_id: dto.newVariantId ?? null,
+          new_quantity: dto.newQuantity,
+          new_price: dto.newPrice,
+          difference,
+          payment_method: dto.paymentMethod ?? null,
+          notes: dto.notes ?? null,
+        },
+      });
+    });
+  }
+
+  async getExchanges(user: ActiveUserData) {
+    const branchId = user.branchIds?.[0];
+    if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
+
+    const exchanges = await this.prisma.exchanges.findMany({
+      where: { company_id: user.companyId, branch_id: branchId },
+      orderBy: { created_at: 'desc' },
+      take: 100,
+    });
+
+    const productIds = [...new Set([
+      ...exchanges.map(e => e.returned_product_id),
+      ...exchanges.map(e => e.new_product_id),
+    ].filter(Boolean) as string[])];
+
+    const variantIds = [...new Set([
+      ...exchanges.map(e => e.returned_variant_id),
+      ...exchanges.map(e => e.new_variant_id),
+    ].filter(Boolean) as string[])];
+
+    const userIds = [...new Set(exchanges.map(e => e.user_id).filter(Boolean) as string[])];
+
+    const [products, variants, users] = await Promise.all([
+      this.prisma.products.findMany({
+        where: { id: { in: productIds } },
+        select: { id: true, name: true, sku: true },
+      }),
+      variantIds.length > 0
+        ? this.prisma.product_variants.findMany({
+            where: { id: { in: variantIds } },
+            select: {
+              id: true,
+              sku: true,
+              values: {
+                include: { attribute_value: { select: { value: true } } },
+              },
+            },
+          })
+        : Promise.resolve([]),
+      this.prisma.users.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true },
+      }),
+    ]);
+
+    const productMap = new Map(products.map(p => [p.id, p]));
+    const variantMap = new Map(
+      variants.map(v => [
+        v.id,
+        { id: v.id, sku: v.sku, label: v.values.map(vv => vv.attribute_value.value).join(' / ') },
+      ]),
+    );
+    const userMap = new Map(users.map(u => [u.id, u]));
+
+    return exchanges.map(e => ({
+      ...e,
+      returnedProduct: productMap.get(e.returned_product_id ?? '') ?? null,
+      returnedVariant: variantMap.get(e.returned_variant_id ?? '') ?? null,
+      newProduct: productMap.get(e.new_product_id ?? '') ?? null,
+      newVariant: variantMap.get(e.new_variant_id ?? '') ?? null,
+      cashier: userMap.get(e.user_id ?? '') ?? null,
+    }));
+  }
+}
