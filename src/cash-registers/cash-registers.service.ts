@@ -333,6 +333,7 @@ export class CashRegistersService {
         });
 
         const enriched = await Promise.all(sessions.map(async session => {
+            const openedAt = session.opened_at ?? new Date(0);
             const closedAt = session.closed_at ?? new Date();
             const salesInSession = await this.prisma.sales.findMany({
                 where: {
@@ -340,8 +341,8 @@ export class CashRegistersService {
                     company_id: user.companyId,
                     status: 'PAID',
                     OR: [
-                        { paid_at: { gte: session.opened_at!, lte: closedAt } },
-                        { paid_at: null, created_at: { gte: session.opened_at!, lte: closedAt } },
+                        { paid_at: { gte: openedAt, lte: closedAt } },
+                        { paid_at: null, created_at: { gte: openedAt, lte: closedAt } },
                     ],
                 },
                 include: {
