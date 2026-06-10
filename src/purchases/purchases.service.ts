@@ -162,10 +162,12 @@ export class PurchasesService {
 
         const whereClause: any = { branch_id: branchId };
         if (startDate && endDate) {
-            whereClause.created_at = {
-                gte: new Date(startDate + 'T00:00:00Z'),
-                lte: new Date(endDate + 'T23:59:59Z'),
-            };
+            const s = new Date(startDate);
+            s.setUTCHours(5, 0, 0, 0);
+            const e = new Date(endDate);
+            e.setUTCDate(e.getUTCDate() + 1);
+            e.setUTCHours(4, 59, 59, 999);
+            whereClause.created_at = { gte: s, lte: e };
         }
 
         return this.prisma.purchases.findMany({

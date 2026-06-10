@@ -190,14 +190,15 @@ export class SalesService {
 
         if (startDate && endDate) {
             const start = new Date(startDate);
-            start.setHours(0, 0, 0, 0);
+            start.setUTCHours(5, 0, 0, 0);
             const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999);
+            end.setUTCDate(end.getUTCDate() + 1);
+            end.setUTCHours(4, 59, 59, 999);
             whereClause.created_at = { gte: start, lte: end };
         } else {
             const start = new Date();
-            start.setDate(start.getDate() - 7);
-            start.setHours(0, 0, 0, 0);
+            start.setUTCDate(start.getUTCDate() - 7);
+            start.setUTCHours(5, 0, 0, 0);
             whereClause.created_at = { gte: start };
         }
 

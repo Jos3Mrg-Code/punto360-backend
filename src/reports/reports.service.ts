@@ -14,8 +14,10 @@ export class ReportsService {
         throw new BadRequestException('Formato de fecha inválido.');
     }
 
-    start.setHours(0, 0, 0, 0);
-    end.setHours(23, 59, 59, 999);
+    // Colombia UTC-5: local midnight = 05:00 UTC, local 23:59:59 = next day 04:59:59 UTC
+    start.setUTCHours(5, 0, 0, 0);
+    end.setUTCDate(end.getUTCDate() + 1);
+    end.setUTCHours(4, 59, 59, 999);
     
     return { start, end };
   }
