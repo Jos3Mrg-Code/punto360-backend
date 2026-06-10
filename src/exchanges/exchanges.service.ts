@@ -148,7 +148,7 @@ export class ExchangesService implements OnModuleInit {
       variants.map(v => [
         v.id,
         { id: v.id, sku: v.sku, label: v.values.map(vv => vv.attribute_value.value).join(' / ') },
-      ]),
+      ] as const),
     );
     const userMap = new Map(users.map(u => [u.id, u]));
 
