@@ -1,11 +1,34 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateExchangeDto } from './dto/create-exchange.dto';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
 
 @Injectable()
-export class ExchangesService {
+export class ExchangesService implements OnModuleInit {
   constructor(private prisma: PrismaService) {}
+
+  async onModuleInit() {
+    await this.prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS exchanges (
+        id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        company_id           UUID,
+        branch_id            UUID,
+        user_id              UUID,
+        returned_product_id  UUID,
+        returned_variant_id  UUID,
+        returned_quantity    DECIMAL(12,3) NOT NULL DEFAULT 1,
+        returned_price       DECIMAL(12,2) NOT NULL DEFAULT 0,
+        new_product_id       UUID,
+        new_variant_id       UUID,
+        new_quantity         DECIMAL(12,3) NOT NULL DEFAULT 1,
+        new_price            DECIMAL(12,2) NOT NULL DEFAULT 0,
+        difference           DECIMAL(12,2) NOT NULL DEFAULT 0,
+        payment_method       TEXT,
+        notes                TEXT,
+        created_at           TIMESTAMP DEFAULT now()
+      )
+    `);
+  }
 
   async createExchange(dto: CreateExchangeDto, user: ActiveUserData) {
     const branchId = user.branchIds?.[0];
