@@ -10,24 +10,29 @@ export class ExchangesService implements OnModuleInit {
   async onModuleInit() {
     await this.prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS exchanges (
-        id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        company_id           UUID,
-        branch_id            UUID,
-        user_id              UUID,
-        returned_product_id  UUID,
-        returned_variant_id  UUID,
-        returned_quantity    DECIMAL(12,3) NOT NULL DEFAULT 1,
-        returned_price       DECIMAL(12,2) NOT NULL DEFAULT 0,
-        new_product_id       UUID,
-        new_variant_id       UUID,
-        new_quantity         DECIMAL(12,3) NOT NULL DEFAULT 1,
-        new_price            DECIMAL(12,2) NOT NULL DEFAULT 0,
-        difference           DECIMAL(12,2) NOT NULL DEFAULT 0,
-        payment_method       TEXT,
-        notes                TEXT,
-        created_at           TIMESTAMP DEFAULT now()
+        id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        company_id            UUID,
+        branch_id             UUID,
+        user_id               UUID,
+        returned_product_id   UUID,
+        returned_variant_id   UUID,
+        returned_product_name TEXT,
+        returned_quantity     DECIMAL(12,3) NOT NULL DEFAULT 1,
+        returned_price        DECIMAL(12,2) NOT NULL DEFAULT 0,
+        new_product_id        UUID,
+        new_variant_id        UUID,
+        new_quantity          DECIMAL(12,3) NOT NULL DEFAULT 1,
+        new_price             DECIMAL(12,2) NOT NULL DEFAULT 0,
+        difference            DECIMAL(12,2) NOT NULL DEFAULT 0,
+        payment_method        TEXT,
+        notes                 TEXT,
+        created_at            TIMESTAMP DEFAULT now()
       )
     `);
+    // Add column if table existed before this field was introduced
+    await this.prisma.$executeRawUnsafe(
+      `ALTER TABLE exchanges ADD COLUMN IF NOT EXISTS returned_product_name TEXT`
+    );
   }
 
   async createExchange(dto: CreateExchangeDto, user: ActiveUserData) {
@@ -35,22 +40,24 @@ export class ExchangesService implements OnModuleInit {
     if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
 
     return this.prisma.$transaction(async (tx) => {
-      // Devolver stock del producto retornado
-      if (dto.returnedVariantId) {
-        await tx.variant_stock.upsert({
-          where: { variant_id_branch_id: { variant_id: dto.returnedVariantId, branch_id: branchId } },
-          update: { quantity: { increment: dto.returnedQuantity } },
-          create: { variant_id: dto.returnedVariantId, branch_id: branchId, quantity: dto.returnedQuantity },
-        });
-      } else {
-        await tx.stock.upsert({
-          where: { product_id_branch_id: { product_id: dto.returnedProductId, branch_id: branchId } },
-          update: { quantity: { increment: dto.returnedQuantity } },
-          create: { product_id: dto.returnedProductId, branch_id: branchId, quantity: dto.returnedQuantity },
-        });
+      // ── Stock del producto devuelto (solo si existe en el sistema) ────────────
+      if (!dto.isExternalReturn && dto.returnedProductId) {
+        if (dto.returnedVariantId) {
+          await tx.variant_stock.upsert({
+            where: { variant_id_branch_id: { variant_id: dto.returnedVariantId, branch_id: branchId } },
+            update: { quantity: { increment: dto.returnedQuantity } },
+            create: { variant_id: dto.returnedVariantId, branch_id: branchId, quantity: dto.returnedQuantity },
+          });
+        } else {
+          await tx.stock.upsert({
+            where: { product_id_branch_id: { product_id: dto.returnedProductId, branch_id: branchId } },
+            update: { quantity: { increment: dto.returnedQuantity } },
+            create: { product_id: dto.returnedProductId, branch_id: branchId, quantity: dto.returnedQuantity },
+          });
+        }
       }
 
-      // Descontar stock del producto nuevo
+      // ── Stock del producto nuevo ──────────────────────────────────────────────
       if (dto.newVariantId) {
         const vs = await tx.variant_stock.findUnique({
           where: { variant_id_branch_id: { variant_id: dto.newVariantId, branch_id: branchId } },
@@ -77,13 +84,39 @@ export class ExchangesService implements OnModuleInit {
 
       const difference = dto.newPrice - dto.returnedPrice;
 
+      // ── Registrar movimiento en caja abierta ─────────────────────────────────
+      if (difference !== 0) {
+        const openCaja = await tx.cash_registers.findFirst({
+          where: { branch_id: branchId, company_id: user.companyId, status: 'OPEN' },
+          select: { id: true },
+        });
+        if (openCaja) {
+          const retName = dto.isExternalReturn
+            ? (dto.returnedProductName ?? 'Producto externo')
+            : 'producto';
+          await tx.cash_movements.create({
+            data: {
+              cash_register_id: openCaja.id,
+              user_id: user.sub,
+              type: difference > 0 ? 'INCOME' : 'EXPENSE',
+              amount: Math.abs(difference),
+              reason: difference > 0
+                ? `Diferencia cambio - ${retName}`
+                : `Devolución cambio - ${retName}`,
+            },
+          });
+        }
+      }
+
+      // ── Crear registro de cambio ──────────────────────────────────────────────
       return tx.exchanges.create({
         data: {
           company_id: user.companyId,
           branch_id: branchId,
           user_id: user.sub,
-          returned_product_id: dto.returnedProductId,
+          returned_product_id: dto.returnedProductId ?? null,
           returned_variant_id: dto.returnedVariantId ?? null,
+          returned_product_name: dto.returnedProductName ?? null,
           returned_quantity: dto.returnedQuantity,
           returned_price: dto.returnedPrice,
           new_product_id: dto.newProductId,
@@ -121,44 +154,37 @@ export class ExchangesService implements OnModuleInit {
     const userIds = [...new Set(exchanges.map(e => e.user_id).filter(Boolean) as string[])];
 
     const [products, variants, users] = await Promise.all([
-      this.prisma.products.findMany({
-        where: { id: { in: productIds } },
-        select: { id: true, name: true, sku: true },
-      }),
+      productIds.length > 0
+        ? this.prisma.products.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true, sku: true } })
+        : Promise.resolve([]),
       variantIds.length > 0
         ? this.prisma.product_variants.findMany({
             where: { id: { in: variantIds } },
-            select: {
-              id: true,
-              sku: true,
-              values: {
-                include: { attribute_value: { select: { value: true } } },
-              },
-            },
+            select: { id: true, sku: true, values: { include: { attribute_value: { select: { value: true } } } } },
           })
         : Promise.resolve([]),
-      this.prisma.users.findMany({
-        where: { id: { in: userIds } },
-        select: { id: true, name: true },
-      }),
+      userIds.length > 0
+        ? this.prisma.users.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
     ]);
 
-    const productMap = new Map(products.map(p => [p.id, p]));
+    const productMap = new Map(products.map(p => [p.id, p] as const));
     const variantMap = new Map(
       variants.map(v => [
         v.id,
         { id: v.id, sku: v.sku, label: v.values.map(vv => vv.attribute_value.value).join(' / ') },
       ] as const),
     );
-    const userMap = new Map(users.map(u => [u.id, u]));
+    const userMap = new Map(users.map(u => [u.id, u] as const));
 
     return exchanges.map(e => ({
       ...e,
-      returnedProduct: productMap.get(e.returned_product_id ?? '') ?? null,
-      returnedVariant: variantMap.get(e.returned_variant_id ?? '') ?? null,
-      newProduct: productMap.get(e.new_product_id ?? '') ?? null,
-      newVariant: variantMap.get(e.new_variant_id ?? '') ?? null,
-      cashier: userMap.get(e.user_id ?? '') ?? null,
+      returnedProduct: e.returned_product_id ? (productMap.get(e.returned_product_id) ?? null) : null,
+      returnedProductName: e.returned_product_name ?? null,
+      returnedVariant: e.returned_variant_id ? (variantMap.get(e.returned_variant_id) ?? null) : null,
+      newProduct: e.new_product_id ? (productMap.get(e.new_product_id) ?? null) : null,
+      newVariant: e.new_variant_id ? (variantMap.get(e.new_variant_id) ?? null) : null,
+      cashier: e.user_id ? (userMap.get(e.user_id) ?? null) : null,
     }));
   }
 }

@@ -388,22 +388,23 @@ model user_roles {
 }
 
 model exchanges {
-  id                   String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  company_id           String?   @db.Uuid
-  branch_id            String?   @db.Uuid
-  user_id              String?   @db.Uuid
-  returned_product_id  String?   @db.Uuid
-  returned_variant_id  String?   @db.Uuid
-  returned_quantity    Decimal   @default(1) @db.Decimal(12, 3)
-  returned_price       Decimal   @default(0) @db.Decimal(12, 2)
-  new_product_id       String?   @db.Uuid
-  new_variant_id       String?   @db.Uuid
-  new_quantity         Decimal   @default(1) @db.Decimal(12, 3)
-  new_price            Decimal   @default(0) @db.Decimal(12, 2)
-  difference           Decimal   @default(0) @db.Decimal(12, 2)
-  payment_method       String?
-  notes                String?
-  created_at           DateTime? @default(now()) @db.Timestamp(6)
+  id                    String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  company_id            String?   @db.Uuid
+  branch_id             String?   @db.Uuid
+  user_id               String?   @db.Uuid
+  returned_product_id   String?   @db.Uuid
+  returned_variant_id   String?   @db.Uuid
+  returned_product_name String?
+  returned_quantity     Decimal   @default(1) @db.Decimal(12, 3)
+  returned_price        Decimal   @default(0) @db.Decimal(12, 2)
+  new_product_id        String?   @db.Uuid
+  new_variant_id        String?   @db.Uuid
+  new_quantity          Decimal   @default(1) @db.Decimal(12, 3)
+  new_price             Decimal   @default(0) @db.Decimal(12, 2)
+  difference            Decimal   @default(0) @db.Decimal(12, 2)
+  payment_method        String?
+  notes                 String?
+  created_at            DateTime? @default(now()) @db.Timestamp(6)
 }
 
 model user_branches {
