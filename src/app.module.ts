@@ -30,6 +30,7 @@ import { PublicApiModule } from './public-api/public-api.module';
 import { ShopifyOAuthModule } from './shopify-oauth/shopify-oauth.module';
 import { PrintQueueModule } from './print-queue/print-queue.module';
 import { ExchangesModule } from './exchanges/exchanges.module';
+import { ConsignmentsModule } from './consignments/consignments.module';
 
 @Module({
   imports: [PrismaModule, AuthModule, UsersModule, CompaniesModule, BranchesModule, ProductsModule, InventoryModule, SalesModule, ExpensesModule, CashModule, ReportsModule,
@@ -47,6 +48,7 @@ import { ExchangesModule } from './exchanges/exchanges.module';
     ShopifyOAuthModule,
     PrintQueueModule,
     ExchangesModule,
+    ConsignmentsModule,
   ],
   controllers: [AppController],
   providers: [AppService,
