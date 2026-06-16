@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
@@ -280,6 +280,99 @@ export class PurchasesService {
             }
 
             return updated;
+        }, { timeout: 30000 });
+    }
+
+    /** Anular una compra: revierte stock, pagos en caja y cartera */
+    async cancelPurchase(purchaseId: string, user: ActiveUserData) {
+        const branchId = user.branchIds?.[0];
+        if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
+
+        const purchase = await this.prisma.purchases.findUnique({
+            where: { id: purchaseId },
+            include: { purchase_items: true },
+        });
+
+        if (!purchase) throw new NotFoundException('Compra no encontrada.');
+        if (purchase.status === 'CANCELLED') throw new BadRequestException('La compra ya está anulada.');
+        if (purchase.branch_id !== branchId) throw new ForbiddenException('Sin acceso a esta compra.');
+
+        // Calcular cuánto fue pagado por cartera vs caja
+        const carteraMovements = await this.prisma.cartera_movements.findMany({
+            where: { reference_id: purchaseId, reference_type: 'PURCHASE', type: 'EXPENSE' },
+        });
+        const totalCartera = carteraMovements.reduce((sum, m) => sum + Number(m.amount), 0);
+        const totalPaid = Number(purchase.paid_amount);
+        const cashPaid = Math.max(0, totalPaid - totalCartera);
+
+        const purchaseRef = `Anulación compra #${purchaseId.split('-')[0]}`;
+
+        return this.prisma.$transaction(async (tx) => {
+            // 1. Marcar como anulada
+            await tx.purchases.update({ where: { id: purchaseId }, data: { status: 'CANCELLED' } });
+
+            // 2. Revertir stock de cada ítem
+            for (const item of purchase.purchase_items) {
+                if (!item.product_id) continue;
+                const qty = Number(item.quantity);
+
+                const existing = await tx.stock.findFirst({
+                    where: { product_id: item.product_id, branch_id: branchId },
+                });
+                if (existing) {
+                    await tx.stock.update({
+                        where: { id: existing.id },
+                        data: { quantity: { decrement: qty } },
+                    });
+                }
+
+                await tx.inventory_movements.create({
+                    data: {
+                        product_id: item.product_id,
+                        branch_id: branchId,
+                        type: 'OUT_ADJUSTMENT',
+                        quantity: qty,
+                        reason: purchaseRef,
+                        reference_id: purchaseId,
+                    },
+                });
+            }
+
+            // 3. Revertir pagos de cartera
+            if (totalCartera > 0) {
+                await tx.cartera_movements.create({
+                    data: {
+                        company_id: user.companyId,
+                        branch_id: branchId,
+                        user_id: user.sub,
+                        type: 'INCOME',
+                        amount: totalCartera,
+                        reason: purchaseRef,
+                        reference_id: purchaseId,
+                        reference_type: 'PURCHASE',
+                    },
+                });
+            }
+
+            // 4. Revertir pagos de caja
+            if (cashPaid > 0) {
+                const openCaja = await tx.cash_registers.findFirst({
+                    where: { branch_id: branchId, company_id: user.companyId, status: 'OPEN' },
+                });
+                if (openCaja) {
+                    await tx.cash_movements.create({
+                        data: {
+                            cash_register_id: openCaja.id,
+                            user_id: user.sub,
+                            type: 'INCOME',
+                            amount: cashPaid,
+                            reason: purchaseRef,
+                        },
+                    });
+                }
+            }
+
+            return { success: true };
         }, { timeout: 30000 });
     }
 }
