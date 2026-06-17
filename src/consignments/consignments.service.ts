@@ -33,6 +33,19 @@ export class ConsignmentsService implements OnModuleInit {
     `);
   }
 
+  async getConsignors(user: ActiveUserData) {
+    const branchId = user.branchIds?.[0];
+    if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
+
+    return this.prisma.$queryRawUnsafe<{ name: string; phone: string | null }[]>(
+      `SELECT DISTINCT ON (consignor_name) consignor_name AS name, consignor_phone AS phone
+       FROM consignments
+       WHERE company_id = $1 AND branch_id = $2
+       ORDER BY consignor_name, created_at DESC`,
+      user.companyId, branchId,
+    );
+  }
+
   async createConsignment(dto: CreateConsignmentDto, user: ActiveUserData) {
     const branchId = user.branchIds?.[0];
     if (!branchId) throw new BadRequestException('Sin sucursal asignada.');

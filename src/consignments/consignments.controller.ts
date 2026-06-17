@@ -13,6 +13,11 @@ export class ConsignmentsController {
     return this.service.getConsignments(user);
   }
 
+  @Get('consignors')
+  getConsignors(@ActiveUser() user: ActiveUserData) {
+    return this.service.getConsignors(user);
+  }
+
   @Post()
   createConsignment(@Body() dto: CreateConsignmentDto, @ActiveUser() user: ActiveUserData) {
     return this.service.createConsignment(dto, user);
