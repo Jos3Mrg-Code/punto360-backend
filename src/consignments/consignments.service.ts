@@ -52,18 +52,11 @@ export class ConsignmentsService implements OnModuleInit {
     if (!dto.items?.length) throw new BadRequestException('Agrega al menos un producto.');
 
     return this.prisma.$transaction(async (tx) => {
-      const consignment = await tx.$executeRawUnsafe(
+      const rows = await tx.$queryRawUnsafe<{ id: string }[]>(
         `INSERT INTO consignments (company_id, branch_id, user_id, consignor_name, consignor_phone, notes)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
         user.companyId, branchId, user.sub,
         dto.consignorName, dto.consignorPhone ?? null, dto.notes ?? null,
-      );
-
-      // Obtener el id recién creado
-      const rows = await tx.$queryRawUnsafe<{ id: string }[]>(
-        `SELECT id FROM consignments WHERE company_id = $1 AND branch_id = $2 AND user_id = $3
-         ORDER BY created_at DESC LIMIT 1`,
-        user.companyId, branchId, user.sub,
       );
       const consignmentId = rows[0].id;
 
