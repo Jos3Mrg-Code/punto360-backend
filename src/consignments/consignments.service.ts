@@ -112,7 +112,7 @@ export class ConsignmentsService implements OnModuleInit {
     const branchId = user.branchIds?.[0];
     if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
 
-    await this.ensureTables();
+    try { await this.ensureTables(); } catch { return []; }
 
     const consignments = await this.prisma.$queryRawUnsafe<any[]>(
       `SELECT c.*, json_agg(
@@ -168,7 +168,7 @@ export class ConsignmentsService implements OnModuleInit {
 
     return consignments.map(c => ({
       ...c,
-      items: (c.items ?? []).map((item: any) => {
+      items: (c.items ?? []).filter(Boolean).map((item: any) => {
         const consignedQty = Number(item.quantity);
         const currentStock: number = item.variant_id
           ? (variantStockMap.get(item.variant_id) ?? 0)
