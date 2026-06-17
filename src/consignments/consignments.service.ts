@@ -8,6 +8,10 @@ export class ConsignmentsService implements OnModuleInit {
   constructor(private prisma: PrismaService) {}
 
   async onModuleInit() {
+    await this.ensureTables();
+  }
+
+  private async ensureTables() {
     await this.prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS consignments (
         id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -37,13 +41,18 @@ export class ConsignmentsService implements OnModuleInit {
     const branchId = user.branchIds?.[0];
     if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
 
-    return this.prisma.$queryRawUnsafe<{ name: string; phone: string | null }[]>(
-      `SELECT DISTINCT ON (consignor_name) consignor_name AS name, consignor_phone AS phone
-       FROM consignments
-       WHERE company_id = $1 AND branch_id = $2
-       ORDER BY consignor_name, created_at DESC`,
-      user.companyId, branchId,
-    );
+    try {
+      await this.ensureTables();
+      return await this.prisma.$queryRawUnsafe<{ name: string; phone: string | null }[]>(
+        `SELECT DISTINCT ON (consignor_name) consignor_name AS name, consignor_phone AS phone
+         FROM consignments
+         WHERE company_id = $1 AND branch_id = $2
+         ORDER BY consignor_name, created_at DESC`,
+        user.companyId, branchId,
+      );
+    } catch {
+      return [];
+    }
   }
 
   async createConsignment(dto: CreateConsignmentDto, user: ActiveUserData) {
@@ -102,6 +111,8 @@ export class ConsignmentsService implements OnModuleInit {
   async getConsignments(user: ActiveUserData) {
     const branchId = user.branchIds?.[0];
     if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
+
+    await this.ensureTables();
 
     const consignments = await this.prisma.$queryRawUnsafe<any[]>(
       `SELECT c.*, json_agg(
