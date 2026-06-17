@@ -145,15 +145,15 @@ export class ConsignmentsService implements OnModuleInit {
         : Promise.resolve([]),
     ]);
 
-    const productMap = new Map(products.map(p => [p.id, p]));
-    const stockMap = new Map(stockRows.map(s => [s.product_id, Number(s.quantity)]));
-    const variantStockMap = new Map(variantStockRows.map(s => [s.variant_id, Number(s.quantity)]));
+    const productMap = new Map(products.map(p => [p.id, p] as const));
+    const stockMap = new Map(stockRows.map(s => [s.product_id, Number(s.quantity)] as const));
+    const variantStockMap = new Map(variantStockRows.map(s => [s.variant_id, Number(s.quantity)] as const));
 
     return consignments.map(c => ({
       ...c,
       items: (c.items ?? []).map((item: any) => {
         const consignedQty = Number(item.quantity);
-        const currentStock = item.variant_id
+        const currentStock: number = item.variant_id
           ? (variantStockMap.get(item.variant_id) ?? 0)
           : (stockMap.get(item.product_id) ?? 0);
         const soldQty = Math.max(0, consignedQty - currentStock);
