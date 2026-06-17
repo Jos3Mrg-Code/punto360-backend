@@ -120,23 +120,53 @@ export class ConsignmentsService implements OnModuleInit {
       consignments.flatMap(c => c.items?.map((i: any) => i.product_id).filter(Boolean) ?? [])
     )] as string[];
 
-    const products = productIds.length > 0
-      ? await this.prisma.products.findMany({
-          where: { id: { in: productIds } },
-          select: { id: true, name: true, sku: true, unit_type: true },
-        })
-      : [];
+    const variantIds = [...new Set(
+      consignments.flatMap(c => c.items?.map((i: any) => i.variant_id).filter(Boolean) ?? [])
+    )] as string[];
+
+    const [products, stockRows, variantStockRows] = await Promise.all([
+      productIds.length > 0
+        ? this.prisma.products.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, name: true, sku: true, unit_type: true },
+          })
+        : Promise.resolve([]),
+      productIds.length > 0
+        ? this.prisma.stock.findMany({
+            where: { product_id: { in: productIds }, branch_id: branchId },
+            select: { product_id: true, quantity: true },
+          })
+        : Promise.resolve([]),
+      variantIds.length > 0
+        ? this.prisma.variant_stock.findMany({
+            where: { variant_id: { in: variantIds }, branch_id: branchId },
+            select: { variant_id: true, quantity: true },
+          })
+        : Promise.resolve([]),
+    ]);
 
     const productMap = new Map(products.map(p => [p.id, p]));
+    const stockMap = new Map(stockRows.map(s => [s.product_id, Number(s.quantity)]));
+    const variantStockMap = new Map(variantStockRows.map(s => [s.variant_id, Number(s.quantity)]));
 
     return consignments.map(c => ({
       ...c,
-      items: (c.items ?? []).map((item: any) => ({
-        ...item,
-        quantity: Number(item.quantity),
-        consignor_price: Number(item.consignor_price),
-        product: item.product_id ? (productMap.get(item.product_id) ?? null) : null,
-      })),
+      items: (c.items ?? []).map((item: any) => {
+        const consignedQty = Number(item.quantity);
+        const currentStock = item.variant_id
+          ? (variantStockMap.get(item.variant_id) ?? 0)
+          : (stockMap.get(item.product_id) ?? 0);
+        const soldQty = Math.max(0, consignedQty - currentStock);
+        return {
+          ...item,
+          quantity: consignedQty,
+          consignor_price: Number(item.consignor_price),
+          current_stock: currentStock,
+          sold_quantity: soldQty,
+          amount_owed: soldQty * Number(item.consignor_price),
+          product: item.product_id ? (productMap.get(item.product_id) ?? null) : null,
+        };
+      }),
     }));
   }
 
