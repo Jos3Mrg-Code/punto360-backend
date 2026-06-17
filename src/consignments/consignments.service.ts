@@ -46,7 +46,7 @@ export class ConsignmentsService implements OnModuleInit {
       return await this.prisma.$queryRawUnsafe<{ name: string; phone: string | null }[]>(
         `SELECT DISTINCT ON (consignor_name) consignor_name AS name, consignor_phone AS phone
          FROM consignments
-         WHERE company_id = $1 AND branch_id = $2
+         WHERE company_id = $1::uuid AND branch_id = $2::uuid
          ORDER BY consignor_name, created_at DESC`,
         user.companyId, branchId,
       );
@@ -63,7 +63,7 @@ export class ConsignmentsService implements OnModuleInit {
     return this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRawUnsafe<{ id: string }[]>(
         `INSERT INTO consignments (company_id, branch_id, user_id, consignor_name, consignor_phone, notes)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6) RETURNING id`,
         user.companyId, branchId, user.sub,
         dto.consignorName, dto.consignorPhone ?? null, dto.notes ?? null,
       );
@@ -72,8 +72,8 @@ export class ConsignmentsService implements OnModuleInit {
       for (const item of dto.items) {
         await tx.$executeRawUnsafe(
           `INSERT INTO consignment_items (consignment_id, product_id, variant_id, quantity, consignor_price)
-           VALUES ($1, $2, $3, $4, $5)`,
-          consignmentId, item.productId, item.variantId ?? null,
+           VALUES ($1::uuid, $2::uuid, NULLIF($3, '')::uuid, $4, $5)`,
+          consignmentId, item.productId, item.variantId ?? '',
           item.quantity, item.consignorPrice,
         );
 
@@ -126,7 +126,7 @@ export class ConsignmentsService implements OnModuleInit {
        ) AS items
        FROM consignments c
        LEFT JOIN consignment_items ci ON ci.consignment_id = c.id
-       WHERE c.company_id = $1 AND c.branch_id = $2
+       WHERE c.company_id = $1::uuid AND c.branch_id = $2::uuid
        GROUP BY c.id
        ORDER BY c.created_at DESC
        LIMIT 100`,
@@ -194,7 +194,7 @@ export class ConsignmentsService implements OnModuleInit {
     const rows = await this.prisma.$queryRawUnsafe<any[]>(
       `SELECT c.*, json_agg(json_build_object('product_id', ci.product_id, 'variant_id', ci.variant_id, 'quantity', ci.quantity)) AS items
        FROM consignments c LEFT JOIN consignment_items ci ON ci.consignment_id = c.id
-       WHERE c.id = $1 GROUP BY c.id`, id,
+       WHERE c.id = $1::uuid GROUP BY c.id`, id,
     );
 
     if (!rows.length) throw new NotFoundException('Consignación no encontrada.');
@@ -202,7 +202,7 @@ export class ConsignmentsService implements OnModuleInit {
     if (consignment.status === 'CANCELLED') throw new BadRequestException('La consignación ya está anulada.');
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`UPDATE consignments SET status = 'CANCELLED' WHERE id = $1`, id);
+      await tx.$executeRawUnsafe(`UPDATE consignments SET status = 'CANCELLED' WHERE id = $1::uuid`, id);
 
       for (const item of consignment.items ?? []) {
         if (!item.product_id) continue;
