@@ -210,7 +210,7 @@ export class SalesService {
                 sale_items: {
                     include: {
                         products: {
-                            select: { name: true, sku: true, unit_type: true }
+                            select: { name: true, sku: true, unit_type: true, categories: { select: { id: true, name: true } } }
                         }
                     }
                 }
