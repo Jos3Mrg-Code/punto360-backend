@@ -145,7 +145,7 @@ export class ConsignmentsService implements OnModuleInit {
       productIds.length > 0
         ? this.prisma.products.findMany({
             where: { id: { in: productIds } },
-            select: { id: true, name: true, sku: true, unit_type: true },
+            select: { id: true, name: true, sku: true, unit_type: true, category_id: true, categories: { select: { id: true, name: true } } },
           })
         : Promise.resolve([]),
       productIds.length > 0
