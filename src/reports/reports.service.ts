@@ -164,7 +164,7 @@ export class ReportsService {
     });
     const hours = Array.from({ length: 24 }, (_, h) => ({ hour: h, label: `${String(h).padStart(2,'0')}h`, revenue: 0, count: 0 }));
     sales.forEach(s => {
-      const h = s.created_at!.getHours();
+      const h = ((s.created_at!.getUTCHours() - 5) + 24) % 24; // UTC-5 Colombia
       hours[h].revenue += Number(s.total); hours[h].count += 1;
     });
     return hours;
@@ -180,7 +180,8 @@ export class ReportsService {
     });
     const days = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].map((label, i) => ({ day: label, index: i, revenue: 0, count: 0 }));
     sales.forEach(s => {
-      const d = s.created_at!.getDay();
+      const localMs = s.created_at!.getTime() - 5 * 60 * 60 * 1000; // UTC-5 Colombia
+      const d = new Date(localMs).getUTCDay();
       days[d].revenue += Number(s.total); days[d].count += 1;
     });
     return days;
