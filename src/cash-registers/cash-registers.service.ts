@@ -376,7 +376,7 @@ export class CashRegistersService {
                 id: session.id,
                 name: session.name,
                 status: session.status,
-                opened_at: session.opened_at,
+                opened_at: session.opened_at ?? session.closed_at,
                 closed_at: session.closed_at,
                 notes: session.notes,
                 cashier: session.users,
