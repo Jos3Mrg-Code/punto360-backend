@@ -114,23 +114,33 @@ export class ReportsService {
         },
       },
       include: {
-        products: { select: { name: true, sku: true } },
+        products: { select: { name: true, sku: true, cost_price: true } },
+        variants: { select: { cost_price: true } },
       },
     });
 
-    const productMap = new Map<string, { name: string; sku: string; quantity: number; revenue: number }>();
+    const productMap = new Map<string, { name: string; sku: string; quantity: number; revenue: number; cost: number }>();
 
     items.forEach(item => {
       const id = item.product_id!;
       if (!item.products) return;
-      
-      const existing = productMap.get(id) || { name: item.products.name, sku: item.products.sku, quantity: 0, revenue: 0 };
-      existing.quantity += Number(item.quantity || 0);
+
+      const qty = Number(item.quantity || 0);
+      const costPrice = Number(item.variants?.cost_price ?? item.products.cost_price ?? 0);
+
+      const existing = productMap.get(id) || { name: item.products.name, sku: item.products.sku, quantity: 0, revenue: 0, cost: 0 };
+      existing.quantity += qty;
       existing.revenue += Number(item.subtotal || 0);
+      existing.cost += costPrice * qty;
       productMap.set(id, existing);
     });
 
     return Array.from(productMap.values())
+      .map(p => ({
+        ...p,
+        profit: p.revenue - p.cost,
+        margin: p.revenue > 0 ? ((p.revenue - p.cost) / p.revenue) * 100 : 0,
+      }))
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, limit);
   }
