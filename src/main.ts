@@ -21,6 +21,10 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  // Health check — usado por el frontend para despertar el backend en Railway
+  const httpAdapter = app.getHttpAdapter();
+  httpAdapter.get('/health', (_req: any, res: any) => res.status(200).json({ ok: true }));
+
   await app.listen(3000);
 }
 bootstrap();
