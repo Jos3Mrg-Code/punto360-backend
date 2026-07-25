@@ -121,6 +121,27 @@ async function run() {
   await sql(`CREATE UNIQUE INDEX IF NOT EXISTS "api_keys_key_key" ON "api_keys"("key")`);
   await fk("api_keys_company_id_fkey", `ALTER TABLE "api_keys" ADD CONSTRAINT "api_keys_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
 
+  // purchases: columnas faltantes (paid_amount, status, due_date)
+  await sql(`ALTER TABLE "purchases" ADD COLUMN IF NOT EXISTS "paid_amount" DECIMAL(12,2) DEFAULT 0`);
+  await sql(`ALTER TABLE "purchases" ADD COLUMN IF NOT EXISTS "status" TEXT DEFAULT 'PAID'`);
+  await sql(`ALTER TABLE "purchases" ADD COLUMN IF NOT EXISTS "due_date" TIMESTAMP(6)`);
+
+  // purchase_payments
+  await sql(`
+    CREATE TABLE IF NOT EXISTS "purchase_payments" (
+      "id"             UUID          NOT NULL DEFAULT uuid_generate_v4(),
+      "purchase_id"    UUID,
+      "user_id"        UUID,
+      "amount"         DECIMAL(12,2),
+      "payment_method" TEXT,
+      "notes"          TEXT,
+      "created_at"     TIMESTAMP(6)           DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "purchase_payments_pkey" PRIMARY KEY ("id")
+    )
+  `);
+  await fk("purchase_payments_purchase_id_fkey", `ALTER TABLE "purchase_payments" ADD CONSTRAINT "purchase_payments_purchase_id_fkey" FOREIGN KEY ("purchase_id") REFERENCES "purchases"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+  await fk("purchase_payments_user_id_fkey",     `ALTER TABLE "purchase_payments" ADD CONSTRAINT "purchase_payments_user_id_fkey"     FOREIGN KEY ("user_id")     REFERENCES "users"("id")     ON DELETE NO ACTION ON UPDATE NO ACTION`);
+
   console.log("[schema] ✓ Base de datos actualizada correctamente.");
 }
 
