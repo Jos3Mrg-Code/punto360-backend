@@ -27,8 +27,27 @@ export class PurchasesService {
             if (supplier) supplierName = supplier.name;
         }
 
+        // Pre-fetch stock existente FUERA de la transacción para reducir queries dentro
+        const productIds   = dto.items.filter(i => !i.variantId).map(i => i.productId);
+        const variantIds   = dto.items.filter(i => i.variantId).map(i => i.variantId!);
+
+        const [existingStocks, existingVariantStocks, activeSession] = await Promise.all([
+            productIds.length > 0
+                ? this.prisma.stock.findMany({ where: { product_id: { in: productIds }, branch_id: branchId } })
+                : Promise.resolve([]),
+            variantIds.length > 0
+                ? this.prisma.variant_stock.findMany({ where: { variant_id: { in: variantIds }, branch_id: branchId } })
+                : Promise.resolve([]),
+            (paidAmount > 0 && dto.paymentMethod === 'CASH' && dto.paymentSource !== 'CARTERA')
+                ? this.prisma.cash_registers.findFirst({ where: { branch_id: branchId, company_id: user.companyId, status: 'OPEN' } })
+                : Promise.resolve(null),
+        ]);
+
+        const stockMap        = new Map(existingStocks.map(s => [s.product_id, s]));
+        const variantStockMap = new Map(existingVariantStocks.map(s => [s.variant_id, s]));
+
         return this.prisma.$transaction(async (tx) => {
-            // 1. Crear cabecera de la compra con información de pago
+            // 1. Crear cabecera
             const purchase = await tx.purchases.create({
                 data: {
                     supplier_id: dto.supplierId || null,
@@ -40,22 +59,24 @@ export class PurchasesService {
                 },
             });
 
-            // 2. Si hubo un pago inicial, registrarlo en el historial de pagos
-            if (paidAmount > 0) {
-                await tx.purchase_payments.create({
-                    data: {
-                        purchase_id: purchase.id,
-                        user_id: user.sub,
-                        amount: paidAmount,
-                        payment_method: dto.paymentMethod || 'CASH',
-                        notes: 'Pago inicial en la creación de compra',
-                    },
-                });
+            const purchaseRef = `Compra #${purchase.id.split('-')[0]}${supplierName ? ` [${supplierName}]` : ''}`;
 
-                const purchaseRef = `Compra #${purchase.id.split('-')[0]}${supplierName ? ` [${supplierName}]` : ''}`;
+            // 2. Pago inicial — todo en paralelo
+            if (paidAmount > 0) {
+                const paymentOps: Promise<any>[] = [
+                    tx.purchase_payments.create({
+                        data: {
+                            purchase_id: purchase.id,
+                            user_id: user.sub,
+                            amount: paidAmount,
+                            payment_method: dto.paymentMethod || 'CASH',
+                            notes: 'Pago inicial en la creación de compra',
+                        },
+                    }),
+                ];
 
                 if (dto.paymentSource === 'CARTERA') {
-                    await tx.cartera_movements.create({
+                    paymentOps.push(tx.cartera_movements.create({
                         data: {
                             company_id: user.companyId,
                             branch_id: branchId,
@@ -66,93 +87,78 @@ export class PurchasesService {
                             reference_id: purchase.id,
                             reference_type: 'PURCHASE',
                         },
-                    });
-                } else if (dto.paymentMethod === 'CASH') {
-                    const activeSession = await tx.cash_registers.findFirst({
-                        where: { branch_id: branchId, company_id: user.companyId, status: 'OPEN' }
-                    });
-                    if (activeSession) {
-                        await tx.cash_movements.create({
-                            data: {
-                                cash_register_id: activeSession.id,
-                                user_id: user.sub,
-                                type: 'EXPENSE',
-                                amount: paidAmount,
-                                reason: `Pago ${purchaseRef}`,
-                            }
-                        });
-                    }
-                }
-            }
-
-            // 3. Registrar ítems y actualizar stock
-            for (const item of dto.items) {
-                await tx.purchase_items.create({
-                    data: {
-                        purchase_id: purchase.id,
-                        product_id: item.productId,
-                        quantity: item.quantity,
-                        cost: item.cost,
-                    },
-                });
-
-                // Aumentar stock (variante o normal)
-                if (item.variantId) {
-                    const existingVs = await tx.variant_stock.findUnique({
-                        where: { variant_id_branch_id: { variant_id: item.variantId, branch_id: branchId } },
-                    });
-                    if (existingVs) {
-                        await tx.variant_stock.update({
-                            where: { id: existingVs.id },
-                            data: { quantity: Number(existingVs.quantity) + Number(item.quantity), updated_at: new Date() },
-                        });
-                    } else {
-                        await tx.variant_stock.create({
-                            data: { variant_id: item.variantId, branch_id: branchId, quantity: item.quantity },
-                        });
-                    }
-                } else {
-                    const existing = await tx.stock.findFirst({
-                        where: { product_id: item.productId, branch_id: branchId },
-                    });
-                    if (existing) {
-                        await tx.stock.update({
-                            where: { id: existing.id },
-                            data: { quantity: Number(existing.quantity) + Number(item.quantity) },
-                        });
-                    } else {
-                        await tx.stock.create({
-                            data: { product_id: item.productId, branch_id: branchId, quantity: item.quantity },
-                        });
-                    }
-                }
-
-                // Actualizar costo y precio de venta del producto (solo si no es variante)
-                if (!item.variantId && (item.cost > 0 || (item.salePrice !== undefined && item.salePrice > 0))) {
-                    await tx.products.update({
-                        where: { id: item.productId },
+                    }));
+                } else if (dto.paymentMethod === 'CASH' && activeSession) {
+                    paymentOps.push(tx.cash_movements.create({
                         data: {
-                            ...(item.cost > 0 && { cost_price: item.cost }),
-                            ...(item.salePrice !== undefined && item.salePrice > 0 && { sale_price: item.salePrice }),
+                            cash_register_id: activeSession.id,
+                            user_id: user.sub,
+                            type: 'EXPENSE',
+                            amount: paidAmount,
+                            reason: `Pago ${purchaseRef}`,
                         },
-                    });
+                    }));
                 }
 
-                // Movimiento de inventario
-                await tx.inventory_movements.create({
-                    data: {
-                        product_id: item.productId,
-                        branch_id: branchId,
-                        type: 'IN_PURCHASE',
-                        quantity: item.quantity,
-                        reason: 'Recepción de Compra',
-                        reference_id: purchase.id,
-                    },
-                });
+                await Promise.all(paymentOps);
             }
+
+            // 3. Ítems bulk insert
+            await tx.purchase_items.createMany({
+                data: dto.items.map(item => ({
+                    purchase_id: purchase.id,
+                    product_id: item.productId,
+                    quantity: item.quantity,
+                    cost: item.cost,
+                })),
+            });
+
+            // 4. Movimientos de inventario bulk insert
+            await tx.inventory_movements.createMany({
+                data: dto.items.map(item => ({
+                    product_id: item.productId,
+                    branch_id: branchId,
+                    type: 'IN_PURCHASE',
+                    quantity: item.quantity,
+                    reason: 'Recepción de Compra',
+                    reference_id: purchase.id,
+                })),
+            });
+
+            // 5. Actualizar stock — todo en paralelo usando upsert
+            await Promise.all(dto.items.map(item => {
+                if (item.variantId) {
+                    const vs = variantStockMap.get(item.variantId);
+                    return tx.variant_stock.upsert({
+                        where: { variant_id_branch_id: { variant_id: item.variantId, branch_id: branchId } },
+                        create: { variant_id: item.variantId, branch_id: branchId, quantity: item.quantity },
+                        update: { quantity: Number(vs?.quantity ?? 0) + Number(item.quantity), updated_at: new Date() },
+                    });
+                } else {
+                    const s = stockMap.get(item.productId);
+                    return tx.stock.upsert({
+                        where: { product_id_branch_id: { product_id: item.productId, branch_id: branchId } },
+                        create: { product_id: item.productId, branch_id: branchId, quantity: item.quantity },
+                        update: { quantity: Number(s?.quantity ?? 0) + Number(item.quantity) },
+                    });
+                }
+            }));
+
+            // 6. Actualizar costo/precio de productos (solo los que aplican) — en paralelo
+            const productUpdates = dto.items
+                .filter(i => !i.variantId && (i.cost > 0 || (i.salePrice !== undefined && i.salePrice > 0)))
+                .map(i => tx.products.update({
+                    where: { id: i.productId },
+                    data: {
+                        ...(i.cost > 0 && { cost_price: i.cost }),
+                        ...(i.salePrice !== undefined && i.salePrice > 0 && { sale_price: i.salePrice }),
+                    },
+                }));
+
+            if (productUpdates.length > 0) await Promise.all(productUpdates);
 
             return purchase;
-        }, { timeout: 30000 });
+        }, { timeout: 60000 });
     }
 
     /** Historial de compras con filtros */
