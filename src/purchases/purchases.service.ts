@@ -43,8 +43,8 @@ export class PurchasesService {
                 : Promise.resolve(null),
         ]);
 
-        const stockMap        = new Map(existingStocks.map(s => [s.product_id, s]));
-        const variantStockMap = new Map(existingVariantStocks.map(s => [s.variant_id, s]));
+        const stockMap        = new Map(existingStocks.map(s => [s.product_id, s] as const));
+        const variantStockMap = new Map(existingVariantStocks.map(s => [s.variant_id, s] as const));
 
         return this.prisma.$transaction(async (tx) => {
             // 1. Crear cabecera
@@ -132,14 +132,14 @@ export class PurchasesService {
                     return tx.variant_stock.upsert({
                         where: { variant_id_branch_id: { variant_id: item.variantId, branch_id: branchId } },
                         create: { variant_id: item.variantId, branch_id: branchId, quantity: item.quantity },
-                        update: { quantity: Number(vs?.quantity ?? 0) + Number(item.quantity), updated_at: new Date() },
+                        update: { quantity: Number((vs as any)?.quantity ?? 0) + Number(item.quantity), updated_at: new Date() },
                     });
                 } else {
                     const s = stockMap.get(item.productId);
                     return tx.stock.upsert({
                         where: { product_id_branch_id: { product_id: item.productId, branch_id: branchId } },
                         create: { product_id: item.productId, branch_id: branchId, quantity: item.quantity },
-                        update: { quantity: Number(s?.quantity ?? 0) + Number(item.quantity) },
+                        update: { quantity: Number((s as any)?.quantity ?? 0) + Number(item.quantity) },
                     });
                 }
             }));
