@@ -142,6 +142,29 @@ async function run() {
   await fk("purchase_payments_purchase_id_fkey", `ALTER TABLE "purchase_payments" ADD CONSTRAINT "purchase_payments_purchase_id_fkey" FOREIGN KEY ("purchase_id") REFERENCES "purchases"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
   await fk("purchase_payments_user_id_fkey",     `ALTER TABLE "purchase_payments" ADD CONSTRAINT "purchase_payments_user_id_fkey"     FOREIGN KEY ("user_id")     REFERENCES "users"("id")     ON DELETE NO ACTION ON UPDATE NO ACTION`);
 
+  // subscriptions: columnas de plan y wompi
+  await sql(`ALTER TABLE "subscriptions" ADD COLUMN IF NOT EXISTS "plan" TEXT NOT NULL DEFAULT 'TRIAL'`);
+  await sql(`ALTER TABLE "subscriptions" ADD COLUMN IF NOT EXISTS "wompi_transaction_id" TEXT`);
+  await sql(`ALTER TABLE "subscriptions" ADD COLUMN IF NOT EXISTS "wompi_reference" TEXT`);
+
+  // companies: email_verified y trial_used
+  await sql(`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "email_verified" BOOLEAN NOT NULL DEFAULT false`);
+  await sql(`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "trial_used" BOOLEAN NOT NULL DEFAULT false`);
+
+  // email_verifications
+  await sql(`
+    CREATE TABLE IF NOT EXISTS "email_verifications" (
+      "id"          UUID         NOT NULL DEFAULT uuid_generate_v4(),
+      "email"       TEXT         NOT NULL,
+      "token"       TEXT         NOT NULL,
+      "expires_at"  TIMESTAMP(6) NOT NULL,
+      "verified_at" TIMESTAMP(6),
+      "created_at"  TIMESTAMP(6)          DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "email_verifications_pkey" PRIMARY KEY ("id")
+    )
+  `);
+  await sql(`CREATE UNIQUE INDEX IF NOT EXISTS "email_verifications_token_key" ON "email_verifications"("token")`);
+
   console.log("[schema] ✓ Base de datos actualizada correctamente.");
 }
 

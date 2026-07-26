@@ -1,8 +1,10 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+import { SubscriptionService } from '../subscription/subscription.service';
 
 
 @Injectable()
@@ -10,6 +12,7 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private subscriptionService: SubscriptionService,
   ) { }
 
   async login(dto: LoginDto) {
@@ -74,5 +77,66 @@ export class AuthService {
     return {
       access_token: this.jwtService.sign(payload),
     };
+  }
+
+  async register(dto: RegisterDto) {
+    const normalizedEmail = dto.email.toLowerCase().trim();
+
+    const existing = await this.prisma.users.findUnique({ where: { email: normalizedEmail } });
+    if (existing) throw new BadRequestException('Ya existe una cuenta con ese correo.');
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+
+    const company = await this.prisma.companies.create({
+      data: {
+        name: dto.companyName,
+        email: normalizedEmail,
+        email_verified: false,
+        trial_used: true,
+      },
+    });
+
+    const branch = await this.prisma.branches.create({
+      data: {
+        company_id: company.id,
+        name: 'Principal',
+        address: '',
+      },
+    });
+
+    const adminRole = await this.prisma.roles.findFirst({ where: { name: 'admin' } });
+
+    const user = await this.prisma.users.create({
+      data: {
+        company_id: company.id,
+        name: dto.name,
+        email: normalizedEmail,
+        password_hash: passwordHash,
+        ...(adminRole ? {
+          user_roles: { create: { role_id: adminRole.id } },
+          user_branches: { create: { branch_id: branch.id } },
+        } : {}),
+      },
+    });
+
+    const trialEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await this.prisma.subscriptions.create({
+      data: {
+        company_id: company.id,
+        plan: 'TRIAL',
+        start_date: new Date(),
+        end_date: trialEnd,
+        amount: 0,
+        status: 'TRIAL',
+      },
+    });
+
+    await this.subscriptionService.sendVerificationEmail(normalizedEmail, dto.name);
+
+    return { ok: true, message: 'Revisa tu correo para verificar tu cuenta.' };
+  }
+
+  async verifyEmail(token: string) {
+    return this.subscriptionService.confirmEmail(token);
   }
 }

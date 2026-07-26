@@ -90,6 +90,8 @@ model companies {
   email               String?
   address             String?
   sale_type_enabled   Boolean      @default(false)
+  email_verified      Boolean      @default(false)
+  trial_used          Boolean      @default(false)
   created_at          DateTime?    @default(now()) @db.Timestamp(6)
   branches             branches[]
   categories           categories[]
@@ -454,15 +456,27 @@ model users {
 }
 
 model subscriptions {
+  id                   String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  company_id           String    @db.Uuid
+  plan                 String    @default("TRIAL")
+  start_date           DateTime  @db.Timestamp(6)
+  end_date             DateTime  @db.Timestamp(6)
+  amount               Decimal   @default(0) @db.Decimal(12, 2)
+  status               String    @default("TRIAL")
+  wompi_transaction_id String?
+  wompi_reference      String?
+  notes                String?
+  created_at           DateTime? @default(now()) @db.Timestamp(6)
+  companies            companies @relation(fields: [company_id], references: [id], onDelete: Cascade)
+}
+
+model email_verifications {
   id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  company_id String    @db.Uuid
-  start_date DateTime  @db.Timestamp(6)
-  end_date   DateTime  @db.Timestamp(6)
-  amount     Decimal   @default(800000) @db.Decimal(12, 2)
-  status     String    @default("active")
-  notes      String?
+  email      String
+  token      String    @unique
+  expires_at DateTime  @db.Timestamp(6)
+  verified_at DateTime? @db.Timestamp(6)
   created_at DateTime? @default(now()) @db.Timestamp(6)
-  companies  companies @relation(fields: [company_id], references: [id], onDelete: Cascade)
 }
 
 model permissions {

@@ -16,7 +16,9 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtGuard } from './auth/guards/jwt.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { ConfigModule } from '@nestjs/config';
-import { PermissionsGuard } from './auth/guards/permissions.guard'
+import { PermissionsGuard } from './auth/guards/permissions.guard';
+import { SubscriptionGuard } from './auth/guards/subscription.guard';
+import { SubscriptionModule } from './subscription/subscription.module';
 import { CategoriesModule } from './categories/categories.module';
 import { CashRegistersModule } from './cash-registers/cash-registers.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
@@ -33,7 +35,7 @@ import { ExchangesModule } from './exchanges/exchanges.module';
 import { ConsignmentsModule } from './consignments/consignments.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, UsersModule, CompaniesModule, BranchesModule, ProductsModule, InventoryModule, SalesModule, ExpensesModule, CashModule, ReportsModule,
+  imports: [PrismaModule, AuthModule, SubscriptionModule, UsersModule, CompaniesModule, BranchesModule, ProductsModule, InventoryModule, SalesModule, ExpensesModule, CashModule, ReportsModule,
     ConfigModule.forRoot({ isGlobal: true }),
     CategoriesModule,
     CashRegistersModule,
@@ -63,6 +65,10 @@ import { ConsignmentsModule } from './consignments/consignments.module';
     {
       provide: APP_GUARD,
       useClass: PermissionsGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: SubscriptionGuard,
     }],
 })
 export class AppModule { }
