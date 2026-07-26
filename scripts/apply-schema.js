@@ -165,6 +165,16 @@ async function run() {
   `);
   await sql(`CREATE UNIQUE INDEX IF NOT EXISTS "email_verifications_token_key" ON "email_verifications"("token")`);
 
+  // Marcar como verificadas las empresas legacy (sin suscripción TRIAL) para que no queden bloqueadas
+  await prisma.$executeRawUnsafe(`
+    UPDATE "companies"
+    SET "email_verified" = true
+    WHERE "email_verified" = false
+      AND "id" NOT IN (
+        SELECT "company_id" FROM "subscriptions" WHERE "status" = 'TRIAL'
+      )
+  `);
+
   console.log("[schema] ✓ Base de datos actualizada correctamente.");
 }
 

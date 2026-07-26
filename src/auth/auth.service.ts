@@ -53,6 +53,15 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
+    // Solo bloquear si la empresa tiene suscripción TRIAL (registradas con el nuevo flujo)
+    // Las empresas legacy no tienen suscripción y pasan libremente
+    const hasTrial = await this.prisma.subscriptions.findFirst({
+      where: { company_id: user.company_id, status: 'TRIAL' },
+    });
+    if (hasTrial && !(user.companies as any)?.email_verified) {
+      throw new UnauthorizedException('Debes verificar tu correo antes de iniciar sesión. Revisa tu bandeja de entrada.');
+    }
+
     const roles = user.user_roles.map(ur => ur.roles.name);
 
     const permissions = user.user_roles
