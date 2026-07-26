@@ -3,13 +3,22 @@ import { Resend } from 'resend';
 
 @Injectable()
 export class EmailService {
-  private readonly resend = new Resend(process.env.RESEND_API_KEY);
+  private resend: Resend | null = null;
   private readonly from = process.env.RESEND_FROM || 'noreply@punto360.co';
   private readonly logger = new Logger(EmailService.name);
 
+  private getResend(): Resend {
+    if (!this.resend) {
+      const key = process.env.RESEND_API_KEY;
+      if (!key) { this.logger.warn('RESEND_API_KEY no configurada — emails desactivados'); return null as any; }
+      this.resend = new Resend(key);
+    }
+    return this.resend;
+  }
+
   async sendVerificationEmail(email: string, name: string, token: string) {
     const url = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
-    await this.resend.emails.send({
+    await this.getResend()?.emails.send({
       from: this.from,
       to: email,
       subject: 'Verifica tu correo — Punto 360',
@@ -28,7 +37,7 @@ export class EmailService {
 
   async sendTrialExpiringEmail(email: string, name: string, daysLeft: number) {
     const url = `${process.env.FRONTEND_URL}/planes`;
-    await this.resend.emails.send({
+    await this.getResend()?.emails.send({
       from: this.from,
       to: email,
       subject: `Tu prueba de Punto 360 vence en ${daysLeft} día${daysLeft !== 1 ? 's' : ''}`,
