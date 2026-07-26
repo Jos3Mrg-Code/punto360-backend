@@ -108,8 +108,8 @@ export class UsersService {
     });
   }
 
-  /** 
-   * Eliminar/Desactivar Usuario 
+  /**
+   * Eliminar/Desactivar Usuario
    * RESTRICCIÓN: No puede borrarse a sí mismo.
    */
   async remove(id: string, actor: ActiveUserData) {
@@ -122,9 +122,34 @@ export class UsersService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Por seguridad e integridad de datos (ventas/registros), 
-    // desactivamos en lugar de borrar físicamente si hay registros asociados, 
+    // Por seguridad e integridad de datos (ventas/registros),
+    // desactivamos en lugar de borrar físicamente si hay registros asociados,
     // pero aquí permitiremos el delete si el negocio lo requiere.
     return this.prisma.users.delete({ where: { id } });
+  }
+
+  async getMe(userId: string) {
+    return this.prisma.users.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true },
+    });
+  }
+
+  async updateMe(userId: string, dto: { name?: string }) {
+    return this.prisma.users.update({
+      where: { id: userId },
+      data: dto,
+      select: { id: true, name: true, email: true },
+    });
+  }
+
+  async changePassword(userId: string, dto: { currentPassword: string; newPassword: string }) {
+    const user = await this.prisma.users.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuario no encontrado.');
+    const valid = await bcrypt.compare(dto.currentPassword, user.password_hash);
+    if (!valid) throw new BadRequestException('Contraseña actual incorrecta.');
+    const hash = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.users.update({ where: { id: userId }, data: { password_hash: hash } });
+    return { ok: true };
   }
 }

@@ -85,4 +85,19 @@ export class CompaniesService {
             };
         });
     }
+
+    async getMyCompany(companyId: string) {
+        return this.prisma.companies.findUnique({
+            where: { id: companyId },
+            select: { id: true, name: true, document_number: true, phone: true, email: true, address: true },
+        });
+    }
+
+    async updateMyCompany(companyId: string, dto: { name?: string; document_number?: string; phone?: string; address?: string }) {
+        return this.prisma.companies.update({
+            where: { id: companyId },
+            data: dto,
+            select: { id: true, name: true, document_number: true, phone: true, email: true, address: true },
+        });
+    }
 }
