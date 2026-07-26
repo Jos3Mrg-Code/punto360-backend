@@ -55,9 +55,9 @@ export class AuthService {
 
     // Solo bloquear si la empresa tiene suscripción TRIAL (registradas con el nuevo flujo)
     // Las empresas legacy no tienen suscripción y pasan libremente
-    const hasTrial = await this.prisma.subscriptions.findFirst({
+    const hasTrial = user.company_id ? await this.prisma.subscriptions.findFirst({
       where: { company_id: user.company_id, status: 'TRIAL' },
-    });
+    }) : null;
     if (hasTrial && !(user.companies as any)?.email_verified) {
       throw new UnauthorizedException('Debes verificar tu correo antes de iniciar sesión. Revisa tu bandeja de entrada.');
     }
