@@ -479,6 +479,15 @@ model email_verifications {
   created_at DateTime? @default(now()) @db.Timestamp(6)
 }
 
+model password_resets {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email      String
+  token      String    @unique
+  expires_at DateTime  @db.Timestamp(6)
+  used_at    DateTime? @db.Timestamp(6)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+}
+
 model permissions {
   id               String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   key              String             @unique

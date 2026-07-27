@@ -1,10 +1,12 @@
 import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { JwtService } from '@nestjs/jwt';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { EmailService } from '../email/email.service';
 
 
 @Injectable()
@@ -13,6 +15,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private subscriptionService: SubscriptionService,
+    private emailService: EmailService,
   ) { }
 
   async login(dto: LoginDto) {
@@ -147,5 +150,42 @@ export class AuthService {
 
   async verifyEmail(token: string) {
     return this.subscriptionService.confirmEmail(token);
+  }
+
+  async forgotPassword(email: string) {
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await this.prisma.users.findUnique({ where: { email: normalizedEmail } });
+    // Respuesta genérica para no revelar si el email existe
+    if (!user) return { ok: true };
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+
+    await this.prisma.password_resets.create({
+      data: { email: normalizedEmail, token, expires_at: expiresAt },
+    });
+
+    await this.emailService.sendPasswordResetEmail(normalizedEmail, token);
+    return { ok: true };
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const record = await this.prisma.password_resets.findUnique({ where: { token } });
+    if (!record) throw new BadRequestException('El enlace es inválido.');
+    if (record.used_at) throw new BadRequestException('Este enlace ya fue usado.');
+    if (new Date() > record.expires_at) throw new BadRequestException('El enlace expiró. Solicita uno nuevo.');
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await this.prisma.users.updateMany({
+      where: { email: record.email },
+      data: { password_hash: hash },
+    });
+
+    await this.prisma.password_resets.update({
+      where: { token },
+      data: { used_at: new Date() },
+    });
+
+    return { ok: true };
   }
 }

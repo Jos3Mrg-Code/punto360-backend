@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Query, Get } from '@nestjs/common';
+import { Body, Controller, Post, Query, Get, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Public } from './decorators/public.decorator';
 import { LoginDto } from './dto/login.dto';
@@ -24,5 +24,19 @@ export class AuthController {
   @Get('verify-email')
   verifyEmail(@Query('token') token: string) {
     return this.authService.verifyEmail(token);
+  }
+
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(200)
+  forgotPassword(@Body('email') email: string) {
+    return this.authService.forgotPassword(email);
+  }
+
+  @Public()
+  @Post('reset-password')
+  @HttpCode(200)
+  resetPassword(@Body('token') token: string, @Body('password') password: string) {
+    return this.authService.resetPassword(token, password);
   }
 }

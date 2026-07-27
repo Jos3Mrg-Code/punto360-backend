@@ -35,6 +35,25 @@ export class EmailService {
     }).catch(e => this.logger.error('Error sending verification email', e));
   }
 
+  async sendPasswordResetEmail(email: string, token: string) {
+    const url = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+    await this.getResend()?.emails.send({
+      from: this.from,
+      to: email,
+      subject: 'Restablecer contraseña — Punto 360',
+      html: `
+        <div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:32px">
+          <h2 style="color:#e91e8c">Restablecer contraseña</h2>
+          <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta en Punto 360.</p>
+          <a href="${url}" style="display:inline-block;margin:24px 0;padding:14px 28px;background:#e91e8c;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">
+            Crear nueva contraseña
+          </a>
+          <p style="color:#666;font-size:13px">Este enlace expira en 1 hora. Si no solicitaste esto, ignora este correo.</p>
+        </div>
+      `,
+    }).catch(e => this.logger.error('Error sending password reset email', e));
+  }
+
   async sendTrialExpiringEmail(email: string, name: string, daysLeft: number) {
     const url = `${process.env.FRONTEND_URL}/planes`;
     await this.getResend()?.emails.send({

@@ -165,6 +165,20 @@ async function run() {
   `);
   await sql(`CREATE UNIQUE INDEX IF NOT EXISTS "email_verifications_token_key" ON "email_verifications"("token")`);
 
+  // password_resets
+  await sql(`
+    CREATE TABLE IF NOT EXISTS "password_resets" (
+      "id"         UUID         NOT NULL DEFAULT uuid_generate_v4(),
+      "email"      TEXT         NOT NULL,
+      "token"      TEXT         NOT NULL,
+      "expires_at" TIMESTAMP(6) NOT NULL,
+      "used_at"    TIMESTAMP(6),
+      "created_at" TIMESTAMP(6)          DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "password_resets_pkey" PRIMARY KEY ("id")
+    )
+  `);
+  await sql(`CREATE UNIQUE INDEX IF NOT EXISTS "password_resets_token_key" ON "password_resets"("token")`);
+
   // Marcar como verificadas las empresas legacy (sin suscripción TRIAL) para que no queden bloqueadas
   await prisma.$executeRawUnsafe(`
     UPDATE "companies"
