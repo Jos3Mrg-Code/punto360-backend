@@ -175,9 +175,14 @@ export class AuthService {
     if (record.used_at) throw new BadRequestException('Este enlace ya fue usado.');
     if (new Date() > record.expires_at) throw new BadRequestException('El enlace expiró. Solicita uno nuevo.');
 
+    const user = await this.prisma.users.findFirst({
+      where: { email: { equals: record.email, mode: 'insensitive' } },
+    });
+    if (!user) throw new BadRequestException('No se encontró el usuario asociado.');
+
     const hash = await bcrypt.hash(newPassword, 10);
-    await this.prisma.users.updateMany({
-      where: { email: record.email },
+    await this.prisma.users.update({
+      where: { id: user.id },
       data: { password_hash: hash },
     });
 
