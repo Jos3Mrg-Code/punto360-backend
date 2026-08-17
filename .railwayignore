@@ -1,0 +1,13 @@
+# Nunca subir variables de entorno locales: Railway inyecta las suyas y un .env
+# en el contenedor las sobrescribiría, apuntando la app a una base inalcanzable.
+.env
+.env.*
+!.env.example
+
+# Artefactos y dependencias: Railway los construye en el build
+node_modules
+dist
+coverage
+
+# Utilidades de mantenimiento que no forman parte del runtime
+variants-plan.json
