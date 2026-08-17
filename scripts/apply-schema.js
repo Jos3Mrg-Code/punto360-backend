@@ -179,6 +179,39 @@ async function run() {
   `);
   await sql(`CREATE UNIQUE INDEX IF NOT EXISTS "password_resets_token_key" ON "password_resets"("token")`);
 
+  // Consecutivo de factura por empresa
+  await sql(`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "last_sale_number" INTEGER NOT NULL DEFAULT 0`);
+  await sql(`ALTER TABLE "sales" ADD COLUMN IF NOT EXISTS "sale_number" INTEGER`);
+
+  // Numerar las ventas existentes de cada empresa en orden cronológico.
+  // Solo toca filas sin número, así que es seguro correrlo varias veces.
+  await sql(`
+    WITH numbered AS (
+      SELECT id, ROW_NUMBER() OVER (PARTITION BY company_id ORDER BY created_at, id) AS rn
+      FROM "sales"
+      WHERE company_id IS NOT NULL
+    )
+    UPDATE "sales" s
+    SET "sale_number" = n.rn
+    FROM numbered n
+    WHERE s.id = n.id AND s."sale_number" IS NULL
+  `);
+
+  // Sincronizar el contador de cada empresa con el último número asignado
+  await sql(`
+    UPDATE "companies" c
+    SET "last_sale_number" = COALESCE(
+      (SELECT MAX(s."sale_number") FROM "sales" s WHERE s.company_id = c.id),
+      0
+    )
+  `);
+
+  await sql(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "sales_company_id_sale_number_key"
+      ON "sales" ("company_id", "sale_number")
+      WHERE "sale_number" IS NOT NULL
+  `);
+
   // Marcar como verificadas las empresas legacy (sin suscripción TRIAL) para que no queden bloqueadas
   await prisma.$executeRawUnsafe(`
     UPDATE "companies"

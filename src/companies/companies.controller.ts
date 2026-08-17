@@ -21,6 +21,11 @@ export class CompaniesController {
         return this.companiesService.getMyCompany(user.companyId);
     }
 
+    @Get('receipt-info')
+    getReceiptInfo(@ActiveUser() user: ActiveUserData) {
+        return this.companiesService.getReceiptInfo(user.companyId, user.branchIds?.[0]);
+    }
+
     @Patch('me')
     updateMe(@ActiveUser() user: ActiveUserData, @Body() dto: any) {
         return this.companiesService.updateMyCompany(user.companyId, dto);

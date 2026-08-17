@@ -93,6 +93,32 @@ export class CompaniesService {
         });
     }
 
+    /** Datos de encabezado para la impresión de facturas (empresa + sucursal activa) */
+    async getReceiptInfo(companyId: string, branchId?: string) {
+        const [company, branch] = await Promise.all([
+            this.prisma.companies.findUnique({
+                where: { id: companyId },
+                select: { name: true, document_number: true, address: true, phone: true },
+            }),
+            branchId
+                ? this.prisma.branches.findFirst({
+                    where: { id: branchId, company_id: companyId },
+                    select: { name: true, address: true, phone: true },
+                })
+                : null,
+        ]);
+
+        return {
+            company_name: company?.name ?? null,
+            document_number: company?.document_number ?? null,
+            branch_name: branch?.name ?? null,
+            // La dirección de la sucursal identifica el punto de venta;
+            // si no está registrada se usa la de la empresa
+            address: branch?.address ?? company?.address ?? null,
+            phone: branch?.phone ?? company?.phone ?? null,
+        };
+    }
+
     async updateMyCompany(companyId: string, dto: { name?: string; document_number?: string; phone?: string; address?: string }) {
         return this.prisma.companies.update({
             where: { id: companyId },

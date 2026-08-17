@@ -8,6 +8,22 @@ import type { ActiveUserData } from '../auth/interfaces/active-user-data.interfa
 export class SalesService {
     constructor(private prisma: PrismaService) {}
 
+    /**
+     * Reserva el siguiente consecutivo de factura de la empresa.
+     * El UPDATE toma un lock sobre la fila de companies, así que dos cajeros
+     * vendiendo al mismo tiempo se serializan y nunca reciben el mismo número.
+     * Solo se llama al cobrar: una factura pausada que se descarta no gasta consecutivo.
+     */
+    private async nextSaleNumber(tx: any, companyId: string): Promise<number> {
+        const rows = await tx.$queryRaw<{ last_sale_number: number }[]>`
+            UPDATE companies
+            SET last_sale_number = last_sale_number + 1
+            WHERE id = ${companyId}::uuid
+            RETURNING last_sale_number
+        `;
+        return Number(rows[0].last_sale_number);
+    }
+
     async createSale(dto: CreateSaleDto, user: ActiveUserData) {
         if (!user.branchIds || user.branchIds.length === 0) {
             throw new BadRequestException("El usuario no tiene una sucursal asignada.");
@@ -30,12 +46,15 @@ export class SalesService {
 
         return this.prisma.$transaction(async (tx) => {
             // 1. Crear el Ticket de Venta
+            const saleNumber = await this.nextSaleNumber(tx, user.companyId);
+
             const sale = await tx.sales.create({
                 data: {
                     company_id: user.companyId,
                     branch_id: branchId,
                     user_id: user.sub,
                     customer_id: dto.customerId || null,
+                    sale_number: saleNumber,
                     total: dto.total,
                     payment_method: dto.paymentMethod,
                     status: 'PAID',
@@ -205,12 +224,27 @@ export class SalesService {
         return this.prisma.sales.findMany({
             where: whereClause,
             include: {
-                branches: { select: { name: true } },
+                // address y phone alimentan el encabezado al reimprimir la factura
+                branches: { select: { name: true, address: true, phone: true } },
                 users: { select: { name: true } },
+                customers: { select: { name: true } },
                 sale_items: {
                     include: {
                         products: {
                             select: { name: true, sku: true, unit_type: true, categories: { select: { id: true, name: true } } }
+                        },
+                        // Sin las variantes, una factura reimpresa perdería talla y color
+                        variants: {
+                            select: {
+                                sku: true,
+                                values: {
+                                    select: {
+                                        attribute_value: {
+                                            select: { value: true, attribute: { select: { name: true } } }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -315,12 +349,16 @@ export class SalesService {
                 });
             }
 
+            // El consecutivo se asigna al cobrar, no al pausar la factura
+            const saleNumber = sale.sale_number ?? await this.nextSaleNumber(tx, user.companyId);
+
             return tx.sales.update({
                 where: { id: saleId },
                 data: {
                     status: 'PAID',
                     payment_method: dto.paymentMethod,
                     customer_id: dto.customerId || null,
+                    sale_number: saleNumber,
                     is_credit: isCredit,
                     paid_at: new Date(),
                 }
