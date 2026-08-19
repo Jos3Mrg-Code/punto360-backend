@@ -183,19 +183,26 @@ async function run() {
   await sql(`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "last_sale_number" INTEGER NOT NULL DEFAULT 0`);
   await sql(`ALTER TABLE "sales" ADD COLUMN IF NOT EXISTS "sale_number" INTEGER`);
 
-  // Numerar las ventas existentes de cada empresa en orden cronológico.
-  // Solo toca filas sin número, así que es seguro correrlo varias veces.
+  // Numerar las ventas existentes que aun no tienen consecutivo.
+  // Continua desde el maximo ya asignado por empresa: recalcular ROW_NUMBER
+  // sobre todas las ventas chocaria con los numeros existentes.
+  // Las PENDING quedan sin numero: el consecutivo se asigna al cobrar.
   await sql(`
     WITH numbered AS (
-      SELECT id, ROW_NUMBER() OVER (PARTITION BY company_id ORDER BY created_at, id) AS rn
-      FROM "sales"
-      WHERE company_id IS NOT NULL
+      SELECT s.id,
+             (SELECT COALESCE(MAX(s2."sale_number"), 0)
+                FROM "sales" s2
+               WHERE s2.company_id = s.company_id)
+             + ROW_NUMBER() OVER (PARTITION BY s.company_id ORDER BY s.created_at, s.id) AS rn
+        FROM "sales" s
+       WHERE s.company_id IS NOT NULL
+         AND s."sale_number" IS NULL
+         AND s.status <> 'PENDING'
     )
     UPDATE "sales" s
     SET "sale_number" = n.rn
     FROM numbered n
-    WHERE s.id = n.id AND s."sale_number" IS NULL
-  `);
+    WHERE s.id = n.id`);
 
   // Sincronizar el contador de cada empresa con el último número asignado
   await sql(`
