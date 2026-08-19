@@ -1,6 +1,18 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+/** Controla qué parte del catálogo ve una integración externa */
+export interface PublishOptions {
+  /** 'ALL' expone todo (integraciones antiguas); 'SELECTED' solo lo publicado */
+  publishMode?: string;
+  /**
+   * Incluye los productos despublicados en forma reducida. Sin esto, una tienda
+   * web no puede distinguir "lo quitaron" de "no cambió", y el producto queda
+   * comprable en la web sin stock real detrás.
+   */
+  includeUnpublished?: boolean;
+}
+
 @Injectable()
 export class PublicApiService implements OnModuleInit {
   constructor(private prisma: PrismaService) {}
@@ -24,9 +36,16 @@ export class PublicApiService implements OnModuleInit {
     );
   }
 
-  async getProducts(companyId: string, branchId?: string) {
+  async getProducts(companyId: string, branchId?: string, opts: PublishOptions = {}) {
+    const onlySelected = opts.publishMode === 'SELECTED';
+
+    const where: any = { company_id: companyId, is_active: true };
+    if (onlySelected && !opts.includeUnpublished) {
+      where.is_published = true;
+    }
+
     const products = await this.prisma.products.findMany({
-      where: { company_id: companyId, is_active: true },
+      where,
       include: {
         categories: { select: { name: true } },
         stock: branchId
@@ -51,12 +70,17 @@ export class PublicApiService implements OnModuleInit {
       orderBy: { name: 'asc' },
     });
 
-    return products.map((p) => this.formatProduct(p));
+    return products.map((p) => this.formatProduct(p, onlySelected));
   }
 
-  async getProduct(companyId: string, productId: string, branchId?: string) {
+  async getProduct(companyId: string, productId: string, branchId?: string, opts: PublishOptions = {}) {
+    const onlySelected = opts.publishMode === 'SELECTED';
+
+    const where: any = { id: productId, company_id: companyId, is_active: true };
+    if (onlySelected) where.is_published = true;
+
     const product = await this.prisma.products.findFirst({
-      where: { id: productId, company_id: companyId, is_active: true },
+      where,
       include: {
         categories: { select: { name: true } },
         stock: branchId
@@ -81,10 +105,16 @@ export class PublicApiService implements OnModuleInit {
     });
 
     if (!product) return null;
-    return this.formatProduct(product);
+    return this.formatProduct(product, onlySelected);
   }
 
-  private formatProduct(p: any) {
+  private formatProduct(p: any, reportPublished = false) {
+    // Un despublicado se devuelve mínimo: basta para que la web lo oculte,
+    // sin filtrar datos de un producto que el comercio decidió no exponer
+    if (reportPublished && !p.is_published) {
+      return { id: p.id, sku: p.sku, published: false };
+    }
+
     const totalStock = p.stock.reduce(
       (sum: number, s: any) => sum + Number(s.quantity),
       0,
@@ -123,6 +153,7 @@ export class PublicApiService implements OnModuleInit {
       has_variants: p.has_variants,
       stock: totalStock,
       variants: p.has_variants ? variants : [],
+      ...(reportPublished ? { published: true } : {}),
     };
   }
 

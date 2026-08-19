@@ -19,8 +19,10 @@ export class ApiKeyGuard implements CanActivate {
       throw new UnauthorizedException('API key requerida');
     }
 
-    const rows = await this.prisma.$queryRaw<{ company_id: string }[]>`
-      SELECT company_id FROM api_keys
+    const rows = await this.prisma.$queryRaw<
+      { company_id: string; publish_mode: string }[]
+    >`
+      SELECT company_id, publish_mode FROM api_keys
       WHERE key = ${apiKey} AND is_active = true
       LIMIT 1
     `;
@@ -30,6 +32,9 @@ export class ApiKeyGuard implements CanActivate {
     }
 
     request.companyId = rows[0].company_id;
+    // ALL = expone todo el catálogo (integraciones antiguas)
+    // SELECTED = solo los productos marcados para publicar
+    request.publishMode = rows[0].publish_mode ?? 'ALL';
     return true;
   }
 }

@@ -212,6 +212,18 @@ async function run() {
       WHERE "sale_number" IS NOT NULL
   `);
 
+  // Publicacion selectiva: que productos ve una tienda web externa.
+  // Default false: publicar el catalogo entero debe ser un acto explicito.
+  await sql(`ALTER TABLE "products" ADD COLUMN IF NOT EXISTS "is_published" BOOLEAN NOT NULL DEFAULT false`);
+  await sql(`ALTER TABLE "products" ADD COLUMN IF NOT EXISTS "published_at" TIMESTAMP(6)`);
+  await sql(`ALTER TABLE "product_variants" ADD COLUMN IF NOT EXISTS "is_published" BOOLEAN NOT NULL DEFAULT true`);
+
+  // publish_mode protege a las integraciones ya existentes: las keys actuales
+  // quedan en ALL y siguen viendo todo el catalogo. Las nuevas nacen en SELECTED.
+  await sql(`ALTER TABLE "api_keys" ADD COLUMN IF NOT EXISTS "publish_mode" TEXT NOT NULL DEFAULT 'ALL'`);
+
+  await sql(`CREATE INDEX IF NOT EXISTS "products_company_published_idx" ON "products"("company_id", "is_published")`);
+
   // Marcar como verificadas las empresas legacy (sin suscripción TRIAL) para que no queden bloqueadas
   await prisma.$executeRawUnsafe(`
     UPDATE "companies"

@@ -123,6 +123,45 @@ export class ProductsService {
         });
     }
 
+    /** Publica o retira un producto del catálogo que ven las tiendas web */
+    async setPublished(id: string, isPublished: boolean, user: ActiveUserData) {
+        const product = await this.prisma.products.findFirst({
+            where: { id, company_id: user.companyId },
+            select: { id: true },
+        });
+
+        if (!product) {
+            throw new NotFoundException('Producto no encontrado o no pertenece a tu negocio');
+        }
+
+        return this.prisma.products.update({
+            where: { id },
+            data: {
+                is_published: isPublished,
+                published_at: isPublished ? new Date() : null,
+            },
+            select: { id: true, name: true, sku: true, is_published: true },
+        });
+    }
+
+    /** Publica o retira varios productos a la vez: marcarlos uno por uno no es viable */
+    async setPublishedBulk(ids: string[], isPublished: boolean, user: ActiveUserData) {
+        if (!ids?.length) {
+            throw new BadRequestException('No se recibieron productos.');
+        }
+
+        const result = await this.prisma.products.updateMany({
+            // El company_id evita que un id de otra empresa se cuele en la lista
+            where: { id: { in: ids }, company_id: user.companyId },
+            data: {
+                is_published: isPublished,
+                published_at: isPublished ? new Date() : null,
+            },
+        });
+
+        return { updated: result.count, is_published: isPublished };
+    }
+
     async importProducts(dto: ImportProductsDto, user: ActiveUserData) {
         const branchId = user.branchIds?.[0];
         const created: string[] = [];

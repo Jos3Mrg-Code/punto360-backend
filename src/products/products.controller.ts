@@ -84,6 +84,23 @@ export class ProductsController {
         return this.productsService.create(dto, user);
     }
 
+    @Patch('publish-bulk')
+    setPublishedBulk(
+        @Body() body: { ids: string[]; is_published: boolean },
+        @ActiveUser() user: ActiveUserData,
+    ) {
+        return this.productsService.setPublishedBulk(body.ids, body.is_published, user);
+    }
+
+    @Patch(':id/publish')
+    setPublished(
+        @Param('id') id: string,
+        @Body() body: { is_published: boolean },
+        @ActiveUser() user: ActiveUserData,
+    ) {
+        return this.productsService.setPublished(id, body.is_published, user);
+    }
+
     @Patch(':id/toggle')
     toggleStatus(@Param('id') id: string, @ActiveUser() user: ActiveUserData) {
         return this.productsService.toggleStatus(id, user);

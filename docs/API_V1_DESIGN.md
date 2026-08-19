@@ -479,3 +479,29 @@ Las fases 1 y 2 son las que entregan valor de verdad; la 3 en adelante es refina
 5. **¿Una tienda web por cliente, o varias?** El flag de §2.3 asume una. Con dos webs de catálogos distintos hay que migrar a canales de venta.
 6. **¿Precio web distinto?** Publicar solo una parte del catálogo suele venir acompañado de precio online propio. Requeriría `products.web_price` opcional (cae a `sale_price` si es `NULL`).
 7. **¿Buffer de stock?** Publicar 10 de las 50 unidades existentes evita sobreventa cuando el mostrador y la web compiten por el mismo inventario. Sería `products.web_stock_buffer`, restado del stock que expone la API.
+
+---
+
+## Anexo — Publicación selectiva: estado de implementación
+
+Implementado el 2026-08-18 sobre el endpoint `/public-api/products` existente, sin esperar a `/v1`.
+
+| Pieza | Dónde |
+|---|---|
+| `products.is_published`, `published_at`, `product_variants.is_published`, `api_keys.publish_mode` | `scripts/apply-schema.js` (se aplica solo al arrancar en producción) |
+| Filtro por publicación y forma reducida de los despublicados | `src/public-api/public-api.service.ts` |
+| `publish_mode` leído de la key | `src/public-api/api-key.guard.ts` |
+| `PATCH /products/:id/publish` y `PATCH /products/publish-bulk` | `src/products/products.controller.ts` |
+| Toggle, selección múltiple, filtro y contador | `pos-frontend` — `InventoryTable`, `InventoryFilters`, `InventoryStats` |
+| Paso a borrador en Shopify de lo retirado | `scripts/import-shopify.js` |
+
+**Contrato del endpoint:**
+
+- `GET /public-api/products` → con `publish_mode = SELECTED`, solo los publicados. Con `ALL`, todo el catálogo (comportamiento anterior).
+- `GET /public-api/products?include_unpublished=true` → añade los retirados como `{ id, sku, published: false }` para que el conector pueda ocultarlos.
+
+**Diferencias con el diseño original:**
+
+- El filtro no es un query param de publicación: lo decide `publish_mode` de la key, para que nadie con la key pueda saltarse la curaduría.
+- Los despublicados se detectan comparando el catálogo completo, no con `updated_since`, que sigue pendiente junto con la paginación por cursor (§4).
+- `product_variants.is_published` existe en base de datos pero la UI todavía no lo expone: solo se publica a nivel de producto.

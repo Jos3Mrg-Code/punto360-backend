@@ -26,14 +26,18 @@ export class PublicApiController {
 
   @Get('products')
   async getProducts(
-    @Req() req: Request & { companyId: string },
+    @Req() req: Request & { companyId: string; publishMode: string },
     @Query('branch_id') branchId?: string,
     @Query('page') page = '1',
     @Query('limit') limit = '100',
+    @Query('include_unpublished') includeUnpublished?: string,
   ) {
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(500, Math.max(1, parseInt(limit)));
-    const products = await this.service.getProducts(req.companyId, branchId);
+    const products = await this.service.getProducts(req.companyId, branchId, {
+      publishMode: req.publishMode,
+      includeUnpublished: includeUnpublished === 'true',
+    });
     const start = (pageNum - 1) * limitNum;
     const paginated = products.slice(start, start + limitNum);
 
@@ -50,11 +54,13 @@ export class PublicApiController {
 
   @Get('products/:id')
   async getProduct(
-    @Req() req: Request & { companyId: string },
+    @Req() req: Request & { companyId: string; publishMode: string },
     @Param('id') id: string,
     @Query('branch_id') branchId?: string,
   ) {
-    const product = await this.service.getProduct(req.companyId, id, branchId);
+    const product = await this.service.getProduct(req.companyId, id, branchId, {
+      publishMode: req.publishMode,
+    });
     if (!product) throw new NotFoundException('Producto no encontrado');
     return product;
   }
