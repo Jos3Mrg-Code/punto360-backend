@@ -85,14 +85,15 @@ export class ShopifySyncService {
       // Espera creciente: 1, 4, 9, 16 y 25 minutos. Tras 5 intentos se marca fallido
       const delayMin = attempts * attempts;
       const status = attempts >= 5 ? 'FAILED' : 'PENDING';
-      const detail = String(e?.message ?? e).slice(0, 500);
+      // Los errores de Prisma vienen multilínea y dejaban el log vacío
+      const detail = String(e?.message ?? e).replace(/\s+/g, ' ').trim().slice(0, 500);
 
       await this.prisma.$executeRaw`
         UPDATE shopify_sync_queue
         SET attempts = ${attempts},
             status = ${status},
             last_error = ${detail},
-            next_retry_at = CURRENT_TIMESTAMP + make_interval(mins => ${delayMin}),
+            next_retry_at = CURRENT_TIMESTAMP + (${delayMin} * INTERVAL '1 minute'),
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ${job.id}::uuid
       `;
