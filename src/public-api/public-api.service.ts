@@ -151,7 +151,11 @@ export class PublicApiService implements OnModuleInit {
       price: Number(p.sale_price),
       category: p.categories?.name ?? null,
       has_variants: p.has_variants,
-      stock: totalStock,
+      // En productos con variantes el stock real vive en las variantes;
+      // el del padre siempre es 0 y confundiria a cualquier integracion
+      stock: p.has_variants
+        ? variants.reduce((sum: number, v: any) => sum + v.stock, 0)
+        : totalStock,
       variants: p.has_variants ? variants : [],
       ...(reportPublished ? { published: true } : {}),
     };

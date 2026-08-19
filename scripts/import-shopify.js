@@ -101,6 +101,12 @@ async function getExistingSkus() {
   return skuToProductId;
 }
 
+/** El stock real de un producto con variantes es la suma de estas */
+function stockDe(p) {
+  if (!p.has_variants) return p.stock;
+  return (p.variants || []).reduce((sum, v) => sum + (v.stock || 0), 0);
+}
+
 // ─── Shopify: crear producto ───────────────────────────────────────────────────
 
 async function createShopifyProduct(p) {
@@ -251,7 +257,7 @@ async function importProducts() {
     try {
       if (DRY_RUN) {
         const variantInfo = p.has_variants ? ` (${p.variants.length} variantes)` : "";
-        console.log(`  📝 ${p.name} [${p.sku}]${variantInfo} — Stock: ${p.stock}`);
+        console.log(`  📝 ${p.name} [${p.sku}]${variantInfo} — Stock: ${stockDe(p)}`);
         created++;
         continue;
       }
