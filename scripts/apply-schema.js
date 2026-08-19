@@ -231,6 +231,35 @@ async function run() {
 
   await sql(`CREATE INDEX IF NOT EXISTS "products_company_published_idx" ON "products"("company_id", "is_published")`);
 
+  // Cola de sincronizacion con Shopify.
+  // Shopify limita a ~2 req/s y un producto de 18 variantes son 19 llamadas,
+  // asi que publicar no puede correr dentro del request: se encola y un worker
+  // lo procesa en segundo plano con reintentos.
+  await sql(`
+    CREATE TABLE IF NOT EXISTS "shopify_sync_queue" (
+      "id"            UUID         NOT NULL DEFAULT uuid_generate_v4(),
+      "company_id"    UUID         NOT NULL,
+      "product_id"    UUID         NOT NULL,
+      "action"        TEXT         NOT NULL,
+      "status"        TEXT         NOT NULL DEFAULT 'PENDING',
+      "attempts"      INTEGER      NOT NULL DEFAULT 0,
+      "last_error"    TEXT,
+      "next_retry_at" TIMESTAMP(6),
+      "created_at"    TIMESTAMP(6)          DEFAULT CURRENT_TIMESTAMP,
+      "updated_at"    TIMESTAMP(6)          DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "shopify_sync_queue_pkey" PRIMARY KEY ("id")
+    )
+  `);
+  await sql(`CREATE INDEX IF NOT EXISTS "shopify_sync_queue_pending_idx" ON "shopify_sync_queue"("status", "next_retry_at")`);
+  // Un producto no necesita dos tareas pendientes de lo mismo encoladas a la vez
+  await sql(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "shopify_sync_queue_pending_uniq"
+      ON "shopify_sync_queue"("product_id", "action")
+      WHERE "status" = 'PENDING'
+  `);
+  await fk("shopify_sync_queue_company_id_fkey", `ALTER TABLE "shopify_sync_queue" ADD CONSTRAINT "shopify_sync_queue_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+  await fk("shopify_sync_queue_product_id_fkey", `ALTER TABLE "shopify_sync_queue" ADD CONSTRAINT "shopify_sync_queue_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+
   // Marcar como verificadas las empresas legacy (sin suscripción TRIAL) para que no queden bloqueadas
   await prisma.$executeRawUnsafe(`
     UPDATE "companies"

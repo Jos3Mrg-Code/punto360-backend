@@ -12,6 +12,8 @@ import { ExpensesModule } from './expenses/expenses.module';
 import { CashModule } from './cash/cash.module';
 import { ReportsModule } from './reports/reports.module';
 import { PrismaModule } from './prisma/prisma.module'
+import { ScheduleModule } from '@nestjs/schedule';
+import { ShopifySyncModule } from './shopify-sync/shopify-sync.module';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtGuard } from './auth/guards/jwt.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
@@ -35,7 +37,7 @@ import { ExchangesModule } from './exchanges/exchanges.module';
 import { ConsignmentsModule } from './consignments/consignments.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, SubscriptionModule, UsersModule, CompaniesModule, BranchesModule, ProductsModule, InventoryModule, SalesModule, ExpensesModule, CashModule, ReportsModule,
+  imports: [ScheduleModule.forRoot(), ShopifySyncModule, PrismaModule, AuthModule, SubscriptionModule, UsersModule, CompaniesModule, BranchesModule, ProductsModule, InventoryModule, SalesModule, ExpensesModule, CashModule, ReportsModule,
     ConfigModule.forRoot({ isGlobal: true }),
     CategoriesModule,
     CashRegistersModule,

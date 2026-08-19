@@ -4,10 +4,14 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { ImportProductsDto } from './dto/import-products.dto';
 import { CreateAttributeDto, CreateVariantDto, UpdateVariantDto, UpdateVariantStockDto } from './dto/variant.dto';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
+import { ShopifySyncService } from '../shopify-sync/shopify-sync.service';
 
 @Injectable()
 export class ProductsService {
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        private shopifySync: ShopifySyncService,
+    ) { }
 
     async create(dto: CreateProductDto, user: ActiveUserData) {
         return this.prisma.$transaction(async (tx) => {
@@ -134,7 +138,7 @@ export class ProductsService {
             throw new NotFoundException('Producto no encontrado o no pertenece a tu negocio');
         }
 
-        return this.prisma.products.update({
+        const updated = await this.prisma.products.update({
             where: { id },
             data: {
                 is_published: isPublished,
@@ -142,6 +146,12 @@ export class ProductsService {
             },
             select: { id: true, name: true, sku: true, is_published: true },
         });
+
+        // Encolar y no esperar: Shopify tarda segundos por producto y el usuario
+        // no debe quedarse mirando el boton
+        await this.shopifySync.enqueue(user.companyId, [id], isPublished ? 'PUBLISH' : 'UNPUBLISH');
+
+        return updated;
     }
 
     /** Publica o retira varios productos a la vez: marcarlos uno por uno no es viable */
@@ -158,6 +168,17 @@ export class ProductsService {
                 published_at: isPublished ? new Date() : null,
             },
         });
+
+        // Solo los que realmente pertenecen a la empresa llegan a la cola
+        const propios = await this.prisma.products.findMany({
+            where: { id: { in: ids }, company_id: user.companyId },
+            select: { id: true },
+        });
+        await this.shopifySync.enqueue(
+            user.companyId,
+            propios.map((p) => p.id),
+            isPublished ? 'PUBLISH' : 'UNPUBLISH',
+        );
 
         return { updated: result.count, is_published: isPublished };
     }
