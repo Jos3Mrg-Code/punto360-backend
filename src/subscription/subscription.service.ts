@@ -5,9 +5,9 @@ import * as crypto from 'crypto';
 import axios from 'axios';
 
 export const PLANS = {
-  MONTHLY:   { label: 'Mensual',     price: 120000, days: 30  },
-  QUARTERLY: { label: 'Trimestral',  price: 320000, days: 90  },
-  ANNUAL:    { label: 'Anual',       price: 1100000, days: 365 },
+  MONTHLY:   { label: 'Mensual',     price: 170000, days: 30  },
+  QUARTERLY: { label: 'Trimestral',  price: 450000, days: 90  },
+  ANNUAL:    { label: 'Anual',       price: 1500000, days: 365 },
 };
 
 @Injectable()
