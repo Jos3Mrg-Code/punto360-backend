@@ -111,7 +111,7 @@ export class AuthService {
     const branch = await this.prisma.branches.create({
       data: {
         company_id: company.id,
-        name: 'Principal',
+        name: dto.branchName?.trim() || 'Principal',
         address: '',
       },
     });
