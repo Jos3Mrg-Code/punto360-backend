@@ -403,15 +403,28 @@ export class SalesService {
 
             // 2. Devolver items al Stock
             for (const item of sale.sale_items) {
-                const currentStock = await tx.stock.findFirst({
-                    where: { product_id: item.product_id, branch_id: branchId }
-                });
+                const qty = item.quantity ? item.quantity.toNumber() : 0;
 
-                if (currentStock) {
-                    await tx.stock.update({
-                        where: { id: currentStock.id },
-                        data: { quantity: currentStock.quantity.toNumber() + (item.quantity ? item.quantity.toNumber() : 0) }
+                if (item.variant_id) {
+                    const varStock = await tx.variant_stock.findUnique({
+                        where: { variant_id_branch_id: { variant_id: item.variant_id, branch_id: branchId } }
                     });
+                    if (varStock) {
+                        await tx.variant_stock.update({
+                            where: { id: varStock.id },
+                            data: { quantity: varStock.quantity.toNumber() + qty, updated_at: new Date() }
+                        });
+                    }
+                } else {
+                    const currentStock = await tx.stock.findFirst({
+                        where: { product_id: item.product_id, branch_id: branchId }
+                    });
+                    if (currentStock) {
+                        await tx.stock.update({
+                            where: { id: currentStock.id },
+                            data: { quantity: currentStock.quantity.toNumber() + qty }
+                        });
+                    }
                 }
 
                 // Registrar devolución
