@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ShopifyClient, loadShopifyConfig, ShopifyConfig } from './shopify.client';
+import { ShopifyClient, shopifyConfigFromCompany, ShopifyConfig } from './shopify.client';
 
 type QueueRow = {
   id: string;
@@ -19,8 +19,28 @@ export class ShopifySyncService {
     private shopify: ShopifyClient,
   ) {}
 
-  get config(): ShopifyConfig | null {
-    return loadShopifyConfig();
+  /** Carga la config Shopify de UNA empresa desde la DB */
+  async getCompanyConfig(companyId: string): Promise<ShopifyConfig | null> {
+    const c = await this.prisma.companies.findUnique({
+      where: { id: companyId },
+      select: { id: true, shopify_store: true, shopify_token: true, shopify_location_id: true },
+    });
+    return c ? shopifyConfigFromCompany(c) : null;
+  }
+
+  /** Devuelve las configs de todas las empresas con Shopify vinculado */
+  async getAllConfigs(): Promise<ShopifyConfig[]> {
+    const companies = await this.prisma.companies.findMany({
+      where: {
+        shopify_store: { not: null },
+        shopify_token: { not: null },
+        shopify_location_id: { not: null },
+      },
+      select: { id: true, shopify_store: true, shopify_token: true, shopify_location_id: true },
+    });
+    return companies
+      .map((c) => shopifyConfigFromCompany(c))
+      .filter((c): c is ShopifyConfig => c !== null);
   }
 
   /**
@@ -30,9 +50,10 @@ export class ShopifySyncService {
    * el request del usuario moriría por timeout.
    */
   async enqueue(companyId: string, productIds: string[], action: 'PUBLISH' | 'UNPUBLISH') {
-    const cfg = this.config;
-    // Sin integración configurada no se encola: la cola crecería sin worker útil
-    if (!cfg || cfg.companyId !== companyId || productIds.length === 0) return;
+    if (!productIds.length) return;
+    // Solo se encola si la empresa tiene Shopify vinculado; evita cola inútil
+    const cfg = await this.getCompanyConfig(companyId);
+    if (!cfg) return;
 
     // Una alta y una baja del mismo producto se anulan: gana la última encolada
     const opposite = action === 'PUBLISH' ? 'UNPUBLISH' : 'PUBLISH';
@@ -65,7 +86,7 @@ export class ShopifySyncService {
   }
 
   async processOne(job: QueueRow) {
-    const cfg = this.config;
+    const cfg = await this.getCompanyConfig(job.company_id);
     if (!cfg) return;
 
     try {

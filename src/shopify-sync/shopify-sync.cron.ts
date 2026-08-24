@@ -19,7 +19,7 @@ export class ShopifySyncCron {
   /** Publica y retira lo que se haya encolado desde el inventario */
   @Cron(CronExpression.EVERY_30_SECONDS)
   async procesarCola() {
-    if (this.procesandoCola || !this.sync.config) return;
+    if (this.procesandoCola) return;
     this.procesandoCola = true;
 
     try {
@@ -39,18 +39,22 @@ export class ShopifySyncCron {
   }
 
   /**
-   * Reconcilia el stock de lo ya publicado. Sin esto, una venta en el POS deja
-   * a Shopify mostrando unidades que ya no existen y se vende lo que no hay.
+   * Reconcilia el stock de todas las empresas con Shopify vinculado.
+   * Sin esto, una venta en el POS deja a Shopify mostrando unidades que ya no existen.
    */
   @Cron(CronExpression.EVERY_10_MINUTES)
   async sincronizarStock() {
-    const cfg = this.sync.config;
-    if (this.sincronizandoStock || !cfg) return;
+    if (this.sincronizandoStock) return;
     this.sincronizandoStock = true;
 
     try {
-      const { checked, updated } = await this.sync.syncStock(cfg);
-      if (updated) this.logger.log(`Stock sincronizado: ${updated} variantes de ${checked} productos`);
+      const cfgs = await this.sync.getAllConfigs();
+      for (const cfg of cfgs) {
+        const { checked, updated } = await this.sync.syncStock(cfg);
+        if (updated) {
+          this.logger.log(`[${cfg.companyId}] Stock sincronizado: ${updated} variante(s) de ${checked} producto(s)`);
+        }
+      }
     } catch (e: any) {
       this.logger.error(`Sync de stock: ${e?.message ?? e}`);
     } finally {
