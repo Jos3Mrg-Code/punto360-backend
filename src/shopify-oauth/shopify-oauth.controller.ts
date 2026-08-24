@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Query, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Patch, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,6 +13,33 @@ const REDIRECT_URI = 'https://punto360-backend-production.up.railway.app/shopify
 @Controller('shopify')
 export class ShopifyOAuthController {
   constructor(private prisma: PrismaService) {}
+
+  /** Guarda credenciales Shopify ingresadas manualmente (Custom App) */
+  @Patch('credentials')
+  async saveCredentials(
+    @Body() body: { store: string; token: string; locationId: string },
+    @ActiveUser() user: ActiveUserData,
+  ) {
+    const { store, token, locationId } = body;
+    if (!store || !token || !locationId) {
+      throw new BadRequestException('store, token y locationId son obligatorios.');
+    }
+    await this.prisma.companies.update({
+      where: { id: user.companyId },
+      data: { shopify_store: store.trim(), shopify_token: token.trim(), shopify_location_id: locationId.trim() },
+    });
+    return { message: 'Credenciales de Shopify guardadas correctamente.' };
+  }
+
+  /** Desvincula Shopify de la empresa */
+  @Delete('credentials')
+  async deleteCredentials(@ActiveUser() user: ActiveUserData) {
+    await this.prisma.companies.update({
+      where: { id: user.companyId },
+      data: { shopify_store: null, shopify_token: null, shopify_location_id: null },
+    });
+    return { message: 'Shopify desvinculado.' };
+  }
 
   /**
    * Devuelve la URL de autorización de Shopify — requiere JWT del admin.
