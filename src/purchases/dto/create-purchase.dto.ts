@@ -56,5 +56,5 @@ export class CreatePurchaseDto {
 
     @IsOptional()
     @IsString()
-    paymentSource?: 'CASH' | 'CARTERA';
+    paymentSource?: 'CASH' | 'CARTERA' | 'EXTERNAL';
 }

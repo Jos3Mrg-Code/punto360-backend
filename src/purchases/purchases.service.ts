@@ -38,7 +38,7 @@ export class PurchasesService {
             variantIds.length > 0
                 ? this.prisma.variant_stock.findMany({ where: { variant_id: { in: variantIds }, branch_id: branchId } })
                 : Promise.resolve([]),
-            (paidAmount > 0 && dto.paymentMethod === 'CASH' && dto.paymentSource !== 'CARTERA')
+            (paidAmount > 0 && dto.paymentMethod === 'CASH' && dto.paymentSource !== 'CARTERA' && dto.paymentSource !== 'EXTERNAL')
                 ? this.prisma.cash_registers.findFirst({ where: { branch_id: branchId, company_id: user.companyId, status: 'OPEN' } })
                 : Promise.resolve(null),
         ]);
@@ -70,7 +70,7 @@ export class PurchasesService {
                             user_id: user.sub,
                             amount: paidAmount,
                             payment_method: dto.paymentMethod || 'CASH',
-                            notes: 'Pago inicial en la creación de compra',
+                            notes: dto.paymentSource === 'EXTERNAL' ? 'Pago externo (factura ya cancelada)' : 'Pago inicial en la creación de compra',
                         },
                     }),
                 ];
