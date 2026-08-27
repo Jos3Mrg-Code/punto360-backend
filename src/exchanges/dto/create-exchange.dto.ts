@@ -1,18 +1,46 @@
+import { IsBoolean, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
+
 export class CreateExchangeDto {
-  // Returned product — either from system or free text
-  isExternalReturn?: boolean;        // true = product not in system
-  returnedProductId?: string;        // required if !isExternalReturn
+  @IsOptional()
+  @IsBoolean()
+  isExternalReturn?: boolean;
+
+  @IsOptional()
+  @IsUUID()
+  returnedProductId?: string;
+
+  @IsOptional()
+  @IsUUID()
   returnedVariantId?: string;
-  returnedProductName?: string;      // required if isExternalReturn
+
+  @IsOptional()
+  @IsString()
+  returnedProductName?: string;
+
+  @IsNumber()
   returnedQuantity: number;
+
+  @IsNumber()
   returnedPrice: number;
 
-  // New product (always from system)
+  @IsUUID()
   newProductId: string;
+
+  @IsOptional()
+  @IsUUID()
   newVariantId?: string;
+
+  @IsNumber()
   newQuantity: number;
+
+  @IsNumber()
   newPrice: number;
 
+  @IsOptional()
+  @IsString()
   paymentMethod?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }
