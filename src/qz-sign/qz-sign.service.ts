@@ -8,8 +8,15 @@ export class QzSignService implements OnModuleInit {
 
   onModuleInit() {
     // En producción se leen de variables de entorno; en local desde los archivos .pem
-    this.privateKey = (process.env.QZ_PRIVATE_KEY ?? '').replace(/\\n/g, '\n');
-    this.certificate = (process.env.QZ_CERTIFICATE ?? '').replace(/\\n/g, '\n');
+    const rawKey  = process.env.QZ_PRIVATE_KEY ?? '';
+    const rawCert = process.env.QZ_CERTIFICATE ?? '';
+    // Soporta tanto PEM plano como PEM codificado en base64 (sin newlines)
+    this.privateKey  = rawKey.startsWith('LS0t')
+      ? Buffer.from(rawKey, 'base64').toString('utf-8')
+      : rawKey.replace(/\\n/g, '\n');
+    this.certificate = rawCert.startsWith('LS0t')
+      ? Buffer.from(rawCert, 'base64').toString('utf-8')
+      : rawCert.replace(/\\n/g, '\n');
 
     if (!this.privateKey || !this.certificate) {
       try {
