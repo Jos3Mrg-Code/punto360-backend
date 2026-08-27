@@ -8,8 +8,8 @@ export class QzSignService implements OnModuleInit {
 
   onModuleInit() {
     // En producción se leen de variables de entorno; en local desde los archivos .pem
-    this.privateKey = process.env.QZ_PRIVATE_KEY ?? '';
-    this.certificate = process.env.QZ_CERTIFICATE ?? '';
+    this.privateKey = (process.env.QZ_PRIVATE_KEY ?? '').replace(/\\n/g, '\n');
+    this.certificate = (process.env.QZ_CERTIFICATE ?? '').replace(/\\n/g, '\n');
 
     if (!this.privateKey || !this.certificate) {
       try {
