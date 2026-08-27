@@ -1,10 +1,11 @@
-import { Injectable, BadRequestException, OnModuleInit } from '@nestjs/common';
+import { Injectable, BadRequestException, OnModuleInit, Logger, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateExchangeDto } from './dto/create-exchange.dto';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
 
 @Injectable()
 export class ExchangesService implements OnModuleInit {
+  private readonly logger = new Logger(ExchangesService.name);
   constructor(private prisma: PrismaService) {}
 
   async onModuleInit() {
@@ -39,7 +40,8 @@ export class ExchangesService implements OnModuleInit {
     const branchId = user.branchIds?.[0];
     if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
 
-    return this.prisma.$transaction(async (tx) => {
+    try {
+    return await this.prisma.$transaction(async (tx) => {
       // ── Stock del producto devuelto (solo si existe en el sistema) ────────────
       if (!dto.isExternalReturn && dto.returnedProductId) {
         if (dto.returnedVariantId) {
@@ -129,6 +131,11 @@ export class ExchangesService implements OnModuleInit {
         },
       });
     });
+    } catch (err: any) {
+      this.logger.error('createExchange failed', err?.message ?? err, err?.stack);
+      if (err instanceof BadRequestException) throw err;
+      throw new InternalServerErrorException(err?.message ?? 'Error interno al registrar el cambio');
+    }
   }
 
   async getExchanges(user: ActiveUserData) {
