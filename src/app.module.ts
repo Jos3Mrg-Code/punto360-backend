@@ -35,6 +35,7 @@ import { ShopifyOAuthModule } from './shopify-oauth/shopify-oauth.module';
 import { PrintQueueModule } from './print-queue/print-queue.module';
 import { ExchangesModule } from './exchanges/exchanges.module';
 import { ConsignmentsModule } from './consignments/consignments.module';
+import { QzSignModule } from './qz-sign/qz-sign.module';
 
 @Module({
   imports: [ScheduleModule.forRoot(), ShopifySyncModule, PrismaModule, AuthModule, SubscriptionModule, UsersModule, CompaniesModule, BranchesModule, ProductsModule, InventoryModule, SalesModule, ExpensesModule, CashModule, ReportsModule,
@@ -53,6 +54,7 @@ import { ConsignmentsModule } from './consignments/consignments.module';
     PrintQueueModule,
     ExchangesModule,
     ConsignmentsModule,
+    QzSignModule,
   ],
   controllers: [AppController],
   providers: [AppService,
