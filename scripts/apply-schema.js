@@ -142,6 +142,21 @@ async function run() {
   await fk("purchase_payments_purchase_id_fkey", `ALTER TABLE "purchase_payments" ADD CONSTRAINT "purchase_payments_purchase_id_fkey" FOREIGN KEY ("purchase_id") REFERENCES "purchases"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
   await fk("purchase_payments_user_id_fkey",     `ALTER TABLE "purchase_payments" ADD CONSTRAINT "purchase_payments_user_id_fkey"     FOREIGN KEY ("user_id")     REFERENCES "users"("id")     ON DELETE NO ACTION ON UPDATE NO ACTION`);
 
+  // purchase_items: registrar la variante comprada
+  await sql(`ALTER TABLE "purchase_items" ADD COLUMN IF NOT EXISTS "variant_id" UUID`);
+  await fk("purchase_items_variant_id_fkey", `ALTER TABLE "purchase_items" ADD CONSTRAINT "purchase_items_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "product_variants"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+
+  // permiso purchases.edit (editar / anular compras) — asignado a roles ADMIN / SUPERADMIN
+  await sql(`INSERT INTO "permissions" ("id", "key", "name") VALUES (uuid_generate_v4(), 'purchases.edit', 'Editar / Anular Compras') ON CONFLICT ("key") DO NOTHING`);
+  await sql(`
+    INSERT INTO "role_permissions" ("role_id", "permission_id")
+    SELECT r."id", p."id"
+    FROM "roles" r
+    CROSS JOIN "permissions" p
+    WHERE UPPER(r."name") IN ('ADMIN', 'SUPERADMIN') AND p."key" = 'purchases.edit'
+    ON CONFLICT DO NOTHING
+  `);
+
   // subscriptions: columnas de plan y wompi
   await sql(`ALTER TABLE "subscriptions" ADD COLUMN IF NOT EXISTS "plan" TEXT NOT NULL DEFAULT 'TRIAL'`);
   await sql(`ALTER TABLE "subscriptions" ADD COLUMN IF NOT EXISTS "wompi_transaction_id" TEXT`);

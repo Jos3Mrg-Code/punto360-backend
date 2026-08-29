@@ -40,6 +40,7 @@ async function main() {
     { key: 'cash.manage',       name: 'Gestionar Arqueos de Caja' },
     { key: 'inventory.manage',  name: 'Gestionar Inventario y Productos' },
     { key: 'purchases.manage',  name: 'Registrar Compras / Recepciones' },
+    { key: 'purchases.edit',    name: 'Editar / Anular Compras' },
     { key: 'history.view',      name: 'Ver Historial de Ventas' },
     { key: 'sales.cancel',      name: 'Anular Ventas' },
     { key: 'users.manage',      name: 'Administrar Usuarios y Roles' },

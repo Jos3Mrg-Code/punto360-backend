@@ -50,7 +50,13 @@ export class SuppliersService {
             include: {
                 purchase_items: {
                     include: {
-                        products: { select: { name: true, sku: true, unit_type: true } },
+                        products: {
+                            select: {
+                                id: true, name: true, sku: true, unit_type: true,
+                                has_variants: true, sale_price: true, cost_price: true,
+                            },
+                        },
+                        variants: { select: { id: true, sku: true, sale_price: true, cost_price: true } },
                     },
                 },
                 purchase_payments: {

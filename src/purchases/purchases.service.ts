@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
+import { UpdatePurchaseDto } from './dto/update-purchase.dto';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
 
 @Injectable()
@@ -108,6 +109,7 @@ export class PurchasesService {
                 data: dto.items.map(item => ({
                     purchase_id: purchase.id,
                     product_id: item.productId,
+                    variant_id: item.variantId || null,
                     quantity: item.quantity,
                     cost: item.cost,
                 })),
@@ -289,6 +291,186 @@ export class PurchasesService {
         }, { timeout: 30000 });
     }
 
+    /**
+     * Editar una compra existente (solo ADMIN / permiso purchases.edit).
+     * Recalcula el stock por diferencia, actualiza el catálogo (nombre, costo, precio)
+     * y recalcula total/estado. El pago existente no se toca: si el nuevo total queda
+     * por debajo de lo pagado, el excedente queda como saldo a favor del proveedor.
+     */
+    async updatePurchase(purchaseId: string, dto: UpdatePurchaseDto, user: ActiveUserData) {
+        const branchId = user.branchIds?.[0];
+        if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
+
+        const purchase = await this.prisma.purchases.findUnique({
+            where: { id: purchaseId },
+            include: {
+                purchase_items: true,
+                branches: { select: { company_id: true } },
+            },
+        });
+
+        if (!purchase) throw new NotFoundException('Compra no encontrada.');
+        if (purchase.branch_id !== branchId || purchase.branches?.company_id !== user.companyId) {
+            throw new ForbiddenException('Sin acceso a esta compra.');
+        }
+        if (purchase.status === 'CANCELLED') {
+            throw new BadRequestException('No se puede editar una compra anulada.');
+        }
+
+        // Validar que productos y variantes pertenezcan a la empresa
+        const productIds = [...new Set(dto.items.map(i => i.productId))];
+        const products = await this.prisma.products.findMany({
+            where: { id: { in: productIds }, company_id: user.companyId },
+            select: { id: true, name: true },
+        });
+        if (products.length !== productIds.length) {
+            throw new BadRequestException('Uno o más productos no existen.');
+        }
+
+        const variantIds = [...new Set(dto.items.filter(i => i.variantId).map(i => i.variantId!))];
+        if (variantIds.length > 0) {
+            const variants = await this.prisma.product_variants.findMany({
+                where: { id: { in: variantIds }, products: { company_id: user.companyId } },
+                select: { id: true, product_id: true },
+            });
+            if (variants.length !== variantIds.length) {
+                throw new BadRequestException('Una o más variantes no existen.');
+            }
+            const vmap = new Map(variants.map(v => [v.id, v.product_id]));
+            for (const it of dto.items) {
+                if (it.variantId && vmap.get(it.variantId) !== it.productId) {
+                    throw new BadRequestException('Una variante no corresponde a su producto.');
+                }
+            }
+        }
+
+        // Diferencia neta de stock por clave (variante o producto)
+        type Delta = { productId: string; variantId: string | null; qty: number };
+        const delta = new Map<string, Delta>();
+        const keyOf = (pid: string, vid: string | null) => (vid ? `v:${vid}` : `p:${pid}`);
+        const bump = (pid: string, vid: string | null, q: number) => {
+            const k = keyOf(pid, vid);
+            const cur = delta.get(k) ?? { productId: pid, variantId: vid, qty: 0 };
+            cur.qty += q;
+            delta.set(k, cur);
+        };
+        for (const old of purchase.purchase_items) {
+            if (!old.product_id) continue;
+            bump(old.product_id, old.variant_id ?? null, -Number(old.quantity ?? 0));
+        }
+        for (const it of dto.items) {
+            bump(it.productId, it.variantId ?? null, Number(it.quantity));
+        }
+
+        const newTotal = dto.items.reduce((s, i) => s + Number(i.quantity) * Number(i.cost), 0);
+        const paidAmount = Number(purchase.paid_amount ?? 0);
+        let status: string;
+        if (paidAmount <= 0) status = 'PENDING';
+        else if (paidAmount >= newTotal) status = 'PAID';
+        else status = 'PARTIAL';
+
+        const ref = `Edición compra #${purchaseId.split('-')[0]}`;
+        const productNameById = new Map(products.map(p => [p.id, p.name]));
+
+        return this.prisma.$transaction(async (tx) => {
+            // 1. Ajustar stock por diferencia
+            for (const d of delta.values()) {
+                if (d.qty === 0) continue;
+
+                if (d.variantId) {
+                    const vs = await tx.variant_stock.findFirst({
+                        where: { variant_id: d.variantId, branch_id: branchId },
+                    });
+                    if (vs) {
+                        await tx.variant_stock.update({
+                            where: { id: vs.id },
+                            data: { quantity: { increment: d.qty }, updated_at: new Date() },
+                        });
+                    } else {
+                        await tx.variant_stock.create({
+                            data: { variant_id: d.variantId, branch_id: branchId, quantity: d.qty },
+                        });
+                    }
+                } else {
+                    const s = await tx.stock.findFirst({
+                        where: { product_id: d.productId, branch_id: branchId },
+                    });
+                    if (s) {
+                        await tx.stock.update({
+                            where: { id: s.id },
+                            data: { quantity: { increment: d.qty } },
+                        });
+                    } else {
+                        await tx.stock.create({
+                            data: { product_id: d.productId, branch_id: branchId, quantity: d.qty },
+                        });
+                    }
+                }
+
+                await tx.inventory_movements.create({
+                    data: {
+                        product_id: d.productId,
+                        branch_id: branchId,
+                        type: d.qty > 0 ? 'IN_PURCHASE' : 'OUT_ADJUSTMENT',
+                        quantity: Math.abs(d.qty),
+                        reason: ref,
+                        reference_id: purchaseId,
+                    },
+                });
+            }
+
+            // 2. Reemplazar líneas
+            await tx.purchase_items.deleteMany({ where: { purchase_id: purchaseId } });
+            await tx.purchase_items.createMany({
+                data: dto.items.map(i => ({
+                    purchase_id: purchaseId,
+                    product_id: i.productId,
+                    variant_id: i.variantId || null,
+                    quantity: i.quantity,
+                    cost: i.cost,
+                })),
+            });
+
+            // 3. Actualizar catálogo: nombre del producto, costo y precio de venta
+            const renamed = new Set<string>();
+            for (const i of dto.items) {
+                if (i.productName?.trim() && !renamed.has(i.productId)) {
+                    renamed.add(i.productId);
+                    if (i.productName.trim() !== productNameById.get(i.productId)) {
+                        await tx.products.update({
+                            where: { id: i.productId },
+                            data: { name: i.productName.trim() },
+                        });
+                    }
+                }
+
+                const priceData: { cost_price?: number; sale_price?: number } = {};
+                if (i.cost > 0) priceData.cost_price = i.cost;
+                if (i.salePrice !== undefined && i.salePrice > 0) priceData.sale_price = i.salePrice;
+                if (Object.keys(priceData).length > 0) {
+                    if (i.variantId) {
+                        await tx.product_variants.update({ where: { id: i.variantId }, data: priceData });
+                    } else {
+                        await tx.products.update({ where: { id: i.productId }, data: priceData });
+                    }
+                }
+            }
+
+            // 4. Actualizar cabecera
+            return tx.purchases.update({
+                where: { id: purchaseId },
+                data: {
+                    total: newTotal,
+                    status,
+                    supplier_id: dto.supplierId !== undefined ? (dto.supplierId || null) : purchase.supplier_id,
+                    due_date: dto.dueDate !== undefined
+                        ? (dto.dueDate ? new Date(dto.dueDate) : null)
+                        : purchase.due_date,
+                },
+            });
+        }, { timeout: 60000 });
+    }
+
     /** Anular una compra: revierte stock, pagos en caja y cartera */
     async cancelPurchase(purchaseId: string, user: ActiveUserData) {
         const branchId = user.branchIds?.[0];
@@ -317,31 +499,45 @@ export class PurchasesService {
             // 1. Marcar como anulada
             await tx.purchases.update({ where: { id: purchaseId }, data: { status: 'CANCELLED' } });
 
-            // 2. Revertir stock de cada ítem
+            // 2. Revertir stock de cada ítem (producto o variante)
             for (const item of purchase.purchase_items) {
-                if (!item.product_id) continue;
                 const qty = Number(item.quantity);
+                if (!qty) continue;
 
-                const existing = await tx.stock.findFirst({
-                    where: { product_id: item.product_id, branch_id: branchId },
-                });
-                if (existing) {
-                    await tx.stock.update({
-                        where: { id: existing.id },
-                        data: { quantity: { decrement: qty } },
+                if (item.variant_id) {
+                    const existing = await tx.variant_stock.findFirst({
+                        where: { variant_id: item.variant_id, branch_id: branchId },
                     });
+                    if (existing) {
+                        await tx.variant_stock.update({
+                            where: { id: existing.id },
+                            data: { quantity: { decrement: qty }, updated_at: new Date() },
+                        });
+                    }
+                } else if (item.product_id) {
+                    const existing = await tx.stock.findFirst({
+                        where: { product_id: item.product_id, branch_id: branchId },
+                    });
+                    if (existing) {
+                        await tx.stock.update({
+                            where: { id: existing.id },
+                            data: { quantity: { decrement: qty } },
+                        });
+                    }
                 }
 
-                await tx.inventory_movements.create({
-                    data: {
-                        product_id: item.product_id,
-                        branch_id: branchId,
-                        type: 'OUT_ADJUSTMENT',
-                        quantity: qty,
-                        reason: purchaseRef,
-                        reference_id: purchaseId,
-                    },
-                });
+                if (item.product_id) {
+                    await tx.inventory_movements.create({
+                        data: {
+                            product_id: item.product_id,
+                            branch_id: branchId,
+                            type: 'OUT_ADJUSTMENT',
+                            quantity: qty,
+                            reason: purchaseRef,
+                            reference_id: purchaseId,
+                        },
+                    });
+                }
             }
 
             // 3. Revertir pagos de cartera

@@ -1,7 +1,9 @@
-import { Controller, Get, Post, Delete, Body, Query, Param, ParseFloatPipe } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Query, Param } from '@nestjs/common';
 import { PurchasesService } from './purchases.service';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
+import { UpdatePurchaseDto } from './dto/update-purchase.dto';
 import { ActiveUser } from '../auth/decorators/active-user.decorator';
+import { Permissions } from '../auth/decorators/permissions.decorator';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
 
 @Controller('purchases')
@@ -30,7 +32,18 @@ export class PurchasesController {
         return this.purchasesService.getSupplierDebts(user);
     }
 
+    @Put(':id')
+    @Permissions('purchases.edit')
+    updatePurchase(
+        @Param('id') id: string,
+        @Body() dto: UpdatePurchaseDto,
+        @ActiveUser() user: ActiveUserData,
+    ) {
+        return this.purchasesService.updatePurchase(id, dto, user);
+    }
+
     @Delete(':id')
+    @Permissions('purchases.edit')
     cancelPurchase(
         @Param('id') id: string,
         @ActiveUser() user: ActiveUserData,
