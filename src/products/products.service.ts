@@ -99,7 +99,14 @@ export class ProductsService {
                     include: {
                         stock: {
                             where: { branch_id: { in: user.branchIds } }
-                        }
+                        },
+                        values: {
+                            include: {
+                                attribute_value: {
+                                    include: { attribute: true },
+                                },
+                            },
+                        },
                     }
                 }
             },
