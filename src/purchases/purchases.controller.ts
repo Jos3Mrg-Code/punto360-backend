@@ -46,9 +46,10 @@ export class PurchasesController {
     @Permissions('purchases.edit')
     cancelPurchase(
         @Param('id') id: string,
+        @Body('refund') refund: 'AUTO' | 'CREDIT' | undefined,
         @ActiveUser() user: ActiveUserData,
     ) {
-        return this.purchasesService.cancelPurchase(id, user);
+        return this.purchasesService.cancelPurchase(id, user, refund === 'CREDIT' ? 'CREDIT' : 'AUTO');
     }
 
     @Post(':id/payments')

@@ -28,6 +28,16 @@ export class PurchasesService {
             if (supplier) supplierName = supplier.name;
         }
 
+        // Pago con saldo a favor del proveedor
+        if (dto.paymentSource === 'CREDIT') {
+            if (!dto.supplierId) throw new BadRequestException('Para pagar con saldo a favor debes seleccionar un proveedor.');
+            if (paidAmount <= 0) throw new BadRequestException('El monto a aplicar del saldo a favor debe ser mayor a 0.');
+            const available = await this.getCreditBalance(dto.supplierId);
+            if (paidAmount > available + 0.001) {
+                throw new BadRequestException(`El saldo a favor disponible es ${available.toFixed(0)}.`);
+            }
+        }
+
         // Pre-fetch stock existente FUERA de la transacción para reducir queries dentro
         const productIds   = dto.items.filter(i => !i.variantId).map(i => i.productId);
         const variantIds   = dto.items.filter(i => i.variantId).map(i => i.variantId!);
@@ -39,7 +49,7 @@ export class PurchasesService {
             variantIds.length > 0
                 ? this.prisma.variant_stock.findMany({ where: { variant_id: { in: variantIds }, branch_id: branchId } })
                 : Promise.resolve([]),
-            (paidAmount > 0 && dto.paymentMethod === 'CASH' && dto.paymentSource !== 'CARTERA' && dto.paymentSource !== 'EXTERNAL')
+            (paidAmount > 0 && dto.paymentMethod === 'CASH' && dto.paymentSource !== 'CARTERA' && dto.paymentSource !== 'EXTERNAL' && dto.paymentSource !== 'CREDIT')
                 ? this.prisma.cash_registers.findFirst({ where: { branch_id: branchId, company_id: user.companyId, status: 'OPEN' } })
                 : Promise.resolve(null),
         ]);
@@ -64,19 +74,38 @@ export class PurchasesService {
 
             // 2. Pago inicial — todo en paralelo
             if (paidAmount > 0) {
+                const paymentNotes =
+                    dto.paymentSource === 'EXTERNAL' ? 'Pago externo (factura ya cancelada)'
+                    : dto.paymentSource === 'CREDIT' ? 'Pago con saldo a favor del proveedor'
+                    : 'Pago inicial en la creación de compra';
+
                 const paymentOps: Promise<any>[] = [
                     tx.purchase_payments.create({
                         data: {
                             purchase_id: purchase.id,
                             user_id: user.sub,
                             amount: paidAmount,
-                            payment_method: dto.paymentMethod || 'CASH',
-                            notes: dto.paymentSource === 'EXTERNAL' ? 'Pago externo (factura ya cancelada)' : 'Pago inicial en la creación de compra',
+                            payment_method: dto.paymentSource === 'CREDIT' ? 'CREDIT' : (dto.paymentMethod || 'CASH'),
+                            notes: paymentNotes,
                         },
                     }),
                 ];
 
-                if (dto.paymentSource === 'CARTERA') {
+                if (dto.paymentSource === 'CREDIT') {
+                    paymentOps.push(tx.supplier_credits.create({
+                        data: {
+                            company_id: user.companyId,
+                            supplier_id: dto.supplierId!,
+                            branch_id: branchId,
+                            user_id: user.sub,
+                            type: 'DEBIT',
+                            amount: paidAmount,
+                            reason: `Saldo a favor aplicado a ${purchaseRef}`,
+                            reference_id: purchase.id,
+                            reference_type: 'PURCHASE_APPLY',
+                        },
+                    }));
+                } else if (dto.paymentSource === 'CARTERA') {
                     paymentOps.push(tx.cartera_movements.create({
                         data: {
                             company_id: user.companyId,
@@ -471,8 +500,11 @@ export class PurchasesService {
         }, { timeout: 60000 });
     }
 
-    /** Anular una compra: revierte stock, pagos en caja y cartera */
-    async cancelPurchase(purchaseId: string, user: ActiveUserData) {
+    /**
+     * Anular una compra: revierte stock y, según `refund`, revierte los pagos
+     * a caja/cartera ('AUTO') o los deja como saldo a favor del proveedor ('CREDIT').
+     */
+    async cancelPurchase(purchaseId: string, user: ActiveUserData, refund: 'AUTO' | 'CREDIT' = 'AUTO') {
         const branchId = user.branchIds?.[0];
         if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
 
@@ -484,6 +516,11 @@ export class PurchasesService {
         if (!purchase) throw new NotFoundException('Compra no encontrada.');
         if (purchase.status === 'CANCELLED') throw new BadRequestException('La compra ya está anulada.');
         if (purchase.branch_id !== branchId) throw new ForbiddenException('Sin acceso a esta compra.');
+
+        const asCredit = refund === 'CREDIT' && Number(purchase.paid_amount) > 0;
+        if (asCredit && !purchase.supplier_id) {
+            throw new BadRequestException('La compra no tiene proveedor; no se puede dejar como saldo a favor.');
+        }
 
         // Calcular cuánto fue pagado por cartera vs caja
         const carteraMovements = await this.prisma.cartera_movements.findMany({
@@ -540,41 +577,138 @@ export class PurchasesService {
                 }
             }
 
-            // 3. Revertir pagos de cartera
-            if (totalCartera > 0) {
-                await tx.cartera_movements.create({
+            if (asCredit) {
+                // 3b. Dejar lo pagado como saldo a favor del proveedor
+                await tx.supplier_credits.create({
                     data: {
                         company_id: user.companyId,
+                        supplier_id: purchase.supplier_id!,
                         branch_id: branchId,
                         user_id: user.sub,
-                        type: 'INCOME',
-                        amount: totalCartera,
+                        type: 'CREDIT',
+                        amount: totalPaid,
                         reason: purchaseRef,
                         reference_id: purchaseId,
-                        reference_type: 'PURCHASE',
+                        reference_type: 'PURCHASE_CANCEL',
                     },
                 });
-            }
-
-            // 4. Revertir pagos de caja
-            if (cashPaid > 0) {
-                const openCaja = await tx.cash_registers.findFirst({
-                    where: { branch_id: branchId, company_id: user.companyId, status: 'OPEN' },
-                });
-                if (openCaja) {
-                    await tx.cash_movements.create({
+            } else {
+                // 3. Revertir pagos de cartera
+                if (totalCartera > 0) {
+                    await tx.cartera_movements.create({
                         data: {
-                            cash_register_id: openCaja.id,
+                            company_id: user.companyId,
+                            branch_id: branchId,
                             user_id: user.sub,
                             type: 'INCOME',
-                            amount: cashPaid,
+                            amount: totalCartera,
                             reason: purchaseRef,
+                            reference_id: purchaseId,
+                            reference_type: 'PURCHASE',
                         },
                     });
+                }
+
+                // 4. Revertir pagos de caja
+                if (cashPaid > 0) {
+                    const openCaja = await tx.cash_registers.findFirst({
+                        where: { branch_id: branchId, company_id: user.companyId, status: 'OPEN' },
+                    });
+                    if (openCaja) {
+                        await tx.cash_movements.create({
+                            data: {
+                                cash_register_id: openCaja.id,
+                                user_id: user.sub,
+                                type: 'INCOME',
+                                amount: cashPaid,
+                                reason: purchaseRef,
+                            },
+                        });
+                    }
                 }
             }
 
             return { success: true };
+        }, { timeout: 30000 });
+    }
+
+    // ── Saldo a favor por proveedor ────────────────────────────────────────
+
+    /** Balance de saldo a favor de un proveedor (Σ CREDIT − Σ DEBIT). */
+    async getCreditBalance(supplierId: string): Promise<number> {
+        const rows = await this.prisma.supplier_credits.findMany({
+            where: { supplier_id: supplierId },
+            select: { type: true, amount: true },
+        });
+        return rows.reduce((sum, r) => sum + (r.type === 'CREDIT' ? Number(r.amount) : -Number(r.amount)), 0);
+    }
+
+    /** Detalle del saldo a favor: balance + movimientos. */
+    async getSupplierCredit(supplierId: string, user: ActiveUserData) {
+        const supplier = await this.prisma.suppliers.findFirst({
+            where: { id: supplierId, company_id: user.companyId },
+            select: { id: true, name: true },
+        });
+        if (!supplier) throw new NotFoundException('Proveedor no encontrado.');
+
+        const movements = await this.prisma.supplier_credits.findMany({
+            where: { supplier_id: supplierId },
+            orderBy: { created_at: 'desc' },
+        });
+        const balance = movements.reduce(
+            (sum, r) => sum + (r.type === 'CREDIT' ? Number(r.amount) : -Number(r.amount)),
+            0,
+        );
+        return { supplierId, balance, movements };
+    }
+
+    /** Transferir saldo a favor del proveedor a la cartera de la empresa. */
+    async transferCreditToCartera(supplierId: string, amount: number, user: ActiveUserData) {
+        const branchId = user.branchIds?.[0];
+        if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
+
+        const supplier = await this.prisma.suppliers.findFirst({
+            where: { id: supplierId, company_id: user.companyId },
+            select: { id: true, name: true },
+        });
+        if (!supplier) throw new NotFoundException('Proveedor no encontrado.');
+
+        const amt = Number(amount);
+        if (!amt || amt <= 0) throw new BadRequestException('El monto debe ser mayor a 0.');
+
+        const balance = await this.getCreditBalance(supplierId);
+        if (amt > balance + 0.001) {
+            throw new BadRequestException(`El saldo a favor disponible es ${balance.toFixed(0)}.`);
+        }
+
+        const reason = `Saldo a favor [${supplier.name}] → cartera`;
+
+        return this.prisma.$transaction(async (tx) => {
+            await tx.supplier_credits.create({
+                data: {
+                    company_id: user.companyId,
+                    supplier_id: supplierId,
+                    branch_id: branchId,
+                    user_id: user.sub,
+                    type: 'DEBIT',
+                    amount: amt,
+                    reason,
+                    reference_type: 'CARTERA_TRANSFER',
+                },
+            });
+            await tx.cartera_movements.create({
+                data: {
+                    company_id: user.companyId,
+                    branch_id: branchId,
+                    user_id: user.sub,
+                    type: 'INCOME',
+                    amount: amt,
+                    reason,
+                    reference_id: supplierId,
+                    reference_type: 'SUPPLIER_CREDIT',
+                },
+            });
+            return { success: true, transferred: amt, remaining: balance - amt };
         }, { timeout: 30000 });
     }
 }
