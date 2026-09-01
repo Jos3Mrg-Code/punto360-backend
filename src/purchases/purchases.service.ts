@@ -2,7 +2,14 @@ import { Injectable, BadRequestException, NotFoundException, ForbiddenException 
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
+import { CreatePayableDto, UpdatePayableDto } from './dto/create-payable.dto';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
+
+const purchaseStatus = (total: number, paid: number): string => {
+    if (paid <= 0) return 'PENDING';
+    if (paid >= total) return 'PAID';
+    return 'PARTIAL';
+};
 
 @Injectable()
 export class PurchasesService {
@@ -345,6 +352,9 @@ export class PurchasesService {
         if (purchase.status === 'CANCELLED') {
             throw new BadRequestException('No se puede editar una compra anulada.');
         }
+        if (!purchase.affects_inventory) {
+            throw new BadRequestException('Esta es una factura por pagar; edítala con el endpoint de facturas por pagar.');
+        }
 
         // Validar que productos y variantes pertenezcan a la empresa
         const productIds = [...new Set(dto.items.map(i => i.productId))];
@@ -500,6 +510,172 @@ export class PurchasesService {
         }, { timeout: 60000 });
     }
 
+    // ── Facturas por pagar (no afectan inventario) ────────────────────────
+
+    /** Validar ítems y devolver el total calculado de una factura por pagar. */
+    private async resolvePayableItems(
+        items: { productId?: string; variantId?: string; description?: string; quantity: number; cost: number }[] | undefined,
+        fallbackTotal: number | undefined,
+        companyId: string,
+    ): Promise<{ total: number; rows: any[] }> {
+        if (!items || items.length === 0) {
+            if (!fallbackTotal || fallbackTotal <= 0) {
+                throw new BadRequestException('Indica el monto total o al menos una línea.');
+            }
+            return { total: fallbackTotal, rows: [] };
+        }
+
+        const productIds = [...new Set(items.filter(i => i.productId).map(i => i.productId!))];
+        if (productIds.length > 0) {
+            const found = await this.prisma.products.count({
+                where: { id: { in: productIds }, company_id: companyId },
+            });
+            if (found !== productIds.length) throw new BadRequestException('Uno o más productos no existen.');
+        }
+        const variantIds = [...new Set(items.filter(i => i.variantId).map(i => i.variantId!))];
+        if (variantIds.length > 0) {
+            const found = await this.prisma.product_variants.count({
+                where: { id: { in: variantIds }, products: { company_id: companyId } },
+            });
+            if (found !== variantIds.length) throw new BadRequestException('Una o más variantes no existen.');
+        }
+
+        const total = items.reduce((s, i) => s + Number(i.quantity) * Number(i.cost), 0);
+        const rows = items.map(i => ({
+            product_id: i.productId || null,
+            variant_id: i.variantId || null,
+            description: i.description?.trim() || null,
+            quantity: i.quantity,
+            cost: i.cost,
+        }));
+        return { total, rows };
+    }
+
+    /**
+     * Registrar una factura por pagar ya existente. NO toca stock, precios ni caja.
+     * Los abonos recibidos se guardan como históricos (pagados por fuera del sistema).
+     */
+    async createPayable(dto: CreatePayableDto, user: ActiveUserData) {
+        const branchId = user.branchIds?.[0];
+        if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
+
+        const supplier = await this.prisma.suppliers.findFirst({
+            where: { id: dto.supplierId, company_id: user.companyId },
+            select: { id: true },
+        });
+        if (!supplier) throw new NotFoundException('Proveedor no encontrado.');
+
+        const { total, rows } = await this.resolvePayableItems(dto.items, dto.total, user.companyId);
+
+        const payments = dto.payments ?? [];
+        const paidAmount = payments.reduce((s, p) => s + Number(p.amount), 0);
+        if (paidAmount > total + 0.001) {
+            throw new BadRequestException('Los abonos superan el total de la factura.');
+        }
+        const status = purchaseStatus(total, paidAmount);
+
+        return this.prisma.$transaction(async (tx) => {
+            const purchase = await tx.purchases.create({
+                data: {
+                    supplier_id: dto.supplierId,
+                    branch_id: branchId,
+                    total,
+                    paid_amount: paidAmount,
+                    status,
+                    affects_inventory: false,
+                    invoice_number: dto.invoiceNumber?.trim() || null,
+                    invoice_date: dto.invoiceDate ? new Date(dto.invoiceDate) : null,
+                    notes: dto.notes?.trim() || null,
+                    due_date: dto.dueDate ? new Date(dto.dueDate) : null,
+                },
+            });
+
+            if (rows.length > 0) {
+                await tx.purchase_items.createMany({
+                    data: rows.map(r => ({ ...r, purchase_id: purchase.id })),
+                });
+            }
+
+            if (payments.length > 0) {
+                await tx.purchase_payments.createMany({
+                    data: payments.map(p => ({
+                        purchase_id: purchase.id,
+                        user_id: user.sub,
+                        amount: p.amount,
+                        payment_method: p.method || 'CASH',
+                        notes: p.notes?.trim() || 'Abono histórico (antes del sistema)',
+                        is_historical: true,
+                        ...(p.date ? { created_at: new Date(p.date) } : {}),
+                    })),
+                });
+            }
+
+            return purchase;
+        }, { timeout: 30000 });
+    }
+
+    /** Editar una factura por pagar (solo cabecera + líneas descriptivas; nunca toca stock). */
+    async updatePayable(purchaseId: string, dto: UpdatePayableDto, user: ActiveUserData) {
+        const branchId = user.branchIds?.[0];
+        if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
+
+        const purchase = await this.prisma.purchases.findUnique({
+            where: { id: purchaseId },
+            include: { branches: { select: { company_id: true } } },
+        });
+        if (!purchase) throw new NotFoundException('Factura no encontrada.');
+        if (purchase.branch_id !== branchId || purchase.branches?.company_id !== user.companyId) {
+            throw new ForbiddenException('Sin acceso a esta factura.');
+        }
+        if (purchase.status === 'CANCELLED') throw new BadRequestException('La factura está anulada.');
+        if (purchase.affects_inventory) {
+            throw new BadRequestException('Esta es una compra con inventario; edítala desde el módulo de compras.');
+        }
+
+        if (dto.supplierId) {
+            const supplier = await this.prisma.suppliers.findFirst({
+                where: { id: dto.supplierId, company_id: user.companyId },
+                select: { id: true },
+            });
+            if (!supplier) throw new NotFoundException('Proveedor no encontrado.');
+        }
+
+        const hasItems = dto.items !== undefined;
+        const { total, rows } = hasItems
+            ? await this.resolvePayableItems(dto.items, dto.total, user.companyId)
+            : { total: dto.total ?? Number(purchase.total ?? 0), rows: null as any[] | null };
+
+        const paidAmount = Number(purchase.paid_amount ?? 0);
+        if (paidAmount > total + 0.001) {
+            throw new BadRequestException('El total no puede quedar por debajo de lo ya abonado.');
+        }
+        const status = purchaseStatus(total, paidAmount);
+
+        return this.prisma.$transaction(async (tx) => {
+            if (rows !== null) {
+                await tx.purchase_items.deleteMany({ where: { purchase_id: purchaseId } });
+                if (rows.length > 0) {
+                    await tx.purchase_items.createMany({
+                        data: rows.map(r => ({ ...r, purchase_id: purchaseId })),
+                    });
+                }
+            }
+
+            return tx.purchases.update({
+                where: { id: purchaseId },
+                data: {
+                    total,
+                    status,
+                    supplier_id: dto.supplierId ?? purchase.supplier_id,
+                    invoice_number: dto.invoiceNumber !== undefined ? (dto.invoiceNumber.trim() || null) : purchase.invoice_number,
+                    invoice_date: dto.invoiceDate !== undefined ? (dto.invoiceDate ? new Date(dto.invoiceDate) : null) : purchase.invoice_date,
+                    notes: dto.notes !== undefined ? (dto.notes.trim() || null) : purchase.notes,
+                    due_date: dto.dueDate !== undefined ? (dto.dueDate ? new Date(dto.dueDate) : null) : purchase.due_date,
+                },
+            });
+        }, { timeout: 30000 });
+    }
+
     /**
      * Anular una compra: revierte stock y, según `refund`, revierte los pagos
      * a caja/cartera ('AUTO') o los deja como saldo a favor del proveedor ('CREDIT').
@@ -510,7 +686,7 @@ export class PurchasesService {
 
         const purchase = await this.prisma.purchases.findUnique({
             where: { id: purchaseId },
-            include: { purchase_items: true },
+            include: { purchase_items: true, purchase_payments: true },
         });
 
         if (!purchase) throw new NotFoundException('Compra no encontrada.');
@@ -522,13 +698,18 @@ export class PurchasesService {
             throw new BadRequestException('La compra no tiene proveedor; no se puede dejar como saldo a favor.');
         }
 
-        // Calcular cuánto fue pagado por cartera vs caja
+        // Calcular cuánto fue pagado por cartera vs caja.
+        // Los abonos históricos (pagados por fuera del sistema) no se revierten a caja.
         const carteraMovements = await this.prisma.cartera_movements.findMany({
             where: { reference_id: purchaseId, reference_type: 'PURCHASE', type: 'EXPENSE' },
         });
         const totalCartera = carteraMovements.reduce((sum, m) => sum + Number(m.amount), 0);
         const totalPaid = Number(purchase.paid_amount);
-        const cashPaid = Math.max(0, totalPaid - totalCartera);
+        const historicalPaid = purchase.purchase_payments
+            .filter(p => p.is_historical)
+            .reduce((sum, p) => sum + Number(p.amount ?? 0), 0);
+        const trackedPaid = Math.max(0, totalPaid - historicalPaid);
+        const cashPaid = Math.max(0, trackedPaid - totalCartera);
 
         const purchaseRef = `Anulación compra #${purchaseId.split('-')[0]}`;
 
@@ -536,8 +717,9 @@ export class PurchasesService {
             // 1. Marcar como anulada
             await tx.purchases.update({ where: { id: purchaseId }, data: { status: 'CANCELLED' } });
 
-            // 2. Revertir stock de cada ítem (producto o variante)
-            for (const item of purchase.purchase_items) {
+            // 2. Revertir stock de cada ítem (producto o variante).
+            //    Las facturas por pagar históricas no tocaron inventario → nada que revertir.
+            for (const item of (purchase.affects_inventory ? purchase.purchase_items : [])) {
                 const qty = Number(item.quantity);
                 if (!qty) continue;
 

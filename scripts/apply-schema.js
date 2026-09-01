@@ -177,6 +177,14 @@ async function run() {
   await sql(`CREATE INDEX IF NOT EXISTS "supplier_credits_supplier_id_idx" ON "supplier_credits"("supplier_id")`);
   await fk("supplier_credits_supplier_id_fkey", `ALTER TABLE "supplier_credits" ADD CONSTRAINT "supplier_credits_supplier_id_fkey" FOREIGN KEY ("supplier_id") REFERENCES "suppliers"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
 
+  // Facturas por pagar históricas (no afectan inventario)
+  await sql(`ALTER TABLE "purchases" ADD COLUMN IF NOT EXISTS "affects_inventory" BOOLEAN NOT NULL DEFAULT true`);
+  await sql(`ALTER TABLE "purchases" ADD COLUMN IF NOT EXISTS "invoice_number" TEXT`);
+  await sql(`ALTER TABLE "purchases" ADD COLUMN IF NOT EXISTS "invoice_date" TIMESTAMP(6)`);
+  await sql(`ALTER TABLE "purchases" ADD COLUMN IF NOT EXISTS "notes" TEXT`);
+  await sql(`ALTER TABLE "purchase_items" ADD COLUMN IF NOT EXISTS "description" TEXT`);
+  await sql(`ALTER TABLE "purchase_payments" ADD COLUMN IF NOT EXISTS "is_historical" BOOLEAN NOT NULL DEFAULT false`);
+
   // subscriptions: columnas de plan y wompi
   await sql(`ALTER TABLE "subscriptions" ADD COLUMN IF NOT EXISTS "plan" TEXT NOT NULL DEFAULT 'TRIAL'`);
   await sql(`ALTER TABLE "subscriptions" ADD COLUMN IF NOT EXISTS "wompi_transaction_id" TEXT`);

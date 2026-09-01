@@ -2,6 +2,7 @@ import { Controller, Get, Post, Put, Delete, Body, Query, Param } from '@nestjs/
 import { PurchasesService } from './purchases.service';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
+import { CreatePayableDto, UpdatePayableDto } from './dto/create-payable.dto';
 import { ActiveUser } from '../auth/decorators/active-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
@@ -30,6 +31,25 @@ export class PurchasesController {
     @Get('debts')
     getDebts(@ActiveUser() user: ActiveUserData) {
         return this.purchasesService.getSupplierDebts(user);
+    }
+
+    @Post('payable')
+    @Permissions('purchases.manage')
+    createPayable(
+        @Body() dto: CreatePayableDto,
+        @ActiveUser() user: ActiveUserData,
+    ) {
+        return this.purchasesService.createPayable(dto, user);
+    }
+
+    @Put(':id/payable')
+    @Permissions('purchases.edit')
+    updatePayable(
+        @Param('id') id: string,
+        @Body() dto: UpdatePayableDto,
+        @ActiveUser() user: ActiveUserData,
+    ) {
+        return this.purchasesService.updatePayable(id, dto, user);
     }
 
     @Put(':id')
