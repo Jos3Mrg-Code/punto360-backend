@@ -11,6 +11,10 @@ const purchaseStatus = (total: number, paid: number): string => {
     return 'PARTIAL';
 };
 
+/** Marca el movimiento de cartera como transferencia para que la subcuenta lo rastree. */
+const carteraReason = (base: string, method?: string | null): string =>
+    method === 'TRANSFER' ? `${base} (Transferencia)` : base;
+
 @Injectable()
 export class PurchasesService {
     constructor(private prisma: PrismaService) {}
@@ -56,7 +60,7 @@ export class PurchasesService {
             variantIds.length > 0
                 ? this.prisma.variant_stock.findMany({ where: { variant_id: { in: variantIds }, branch_id: branchId } })
                 : Promise.resolve([]),
-            (paidAmount > 0 && dto.paymentMethod === 'CASH' && dto.paymentSource !== 'CARTERA' && dto.paymentSource !== 'EXTERNAL' && dto.paymentSource !== 'CREDIT')
+            (paidAmount > 0 && dto.paymentSource !== 'CARTERA' && dto.paymentSource !== 'EXTERNAL' && dto.paymentSource !== 'CREDIT')
                 ? this.prisma.cash_registers.findFirst({ where: { branch_id: branchId, company_id: user.companyId, status: 'OPEN' } })
                 : Promise.resolve(null),
         ]);
@@ -120,12 +124,12 @@ export class PurchasesService {
                             user_id: user.sub,
                             type: 'EXPENSE',
                             amount: paidAmount,
-                            reason: `Pago ${purchaseRef}`,
+                            reason: carteraReason(`Pago ${purchaseRef}`, dto.paymentMethod),
                             reference_id: purchase.id,
                             reference_type: 'PURCHASE',
                         },
                     }));
-                } else if (dto.paymentMethod === 'CASH' && activeSession) {
+                } else if (activeSession) {
                     paymentOps.push(tx.cash_movements.create({
                         data: {
                             cash_register_id: activeSession.id,
@@ -300,12 +304,12 @@ export class PurchasesService {
                         user_id: user.sub,
                         type: 'EXPENSE',
                         amount: amount,
-                        reason: purchaseRef,
+                        reason: carteraReason(purchaseRef, method),
                         reference_id: purchaseId,
                         reference_type: 'PURCHASE',
                     },
                 });
-            } else if (method === 'CASH') {
+            } else {
                 const activeSession = await tx.cash_registers.findFirst({
                     where: { branch_id: branchId, company_id: user.companyId, status: 'OPEN' }
                 });
