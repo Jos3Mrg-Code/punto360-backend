@@ -291,10 +291,13 @@ export class ProductsService {
         });
         if (!product) throw new NotFoundException('Producto no encontrado');
 
+        const existingCount = await this.prisma.product_attributes.count({ where: { product_id: productId } });
+
         const attr = await this.prisma.product_attributes.create({
             data: {
                 product_id: productId,
                 name: dto.name,
+                position: existingCount,
                 values: {
                     create: dto.values.map((v, i) => ({ value: v, position: i })),
                 },
