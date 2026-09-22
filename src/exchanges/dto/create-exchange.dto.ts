@@ -23,18 +23,21 @@ export class CreateExchangeDto {
   @IsNumber()
   returnedPrice: number;
 
+  @IsOptional()
   @IsUUID()
-  newProductId: string;
+  newProductId?: string;
 
   @IsOptional()
   @IsUUID()
   newVariantId?: string;
 
+  @IsOptional()
   @IsNumber()
-  newQuantity: number;
+  newQuantity?: number;
 
+  @IsOptional()
   @IsNumber()
-  newPrice: number;
+  newPrice?: number;
 
   @IsOptional()
   @IsString()

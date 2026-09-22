@@ -59,32 +59,39 @@ export class ExchangesService implements OnModuleInit {
         }
       }
 
-      // ── Stock del producto nuevo ──────────────────────────────────────────────
-      if (dto.newVariantId) {
-        const vs = await tx.variant_stock.findUnique({
-          where: { variant_id_branch_id: { variant_id: dto.newVariantId, branch_id: branchId } },
-        });
-        if (!vs || Number(vs.quantity) < dto.newQuantity) {
-          throw new BadRequestException('Stock insuficiente para el producto nuevo.');
+      // ── Stock del producto nuevo (solo si es un cambio, no una devolución pura) ─
+      const isRefundOnly = !dto.newProductId;
+
+      if (dto.newProductId) {
+        const newProductId = dto.newProductId;
+        const newQuantity = dto.newQuantity ?? 1;
+        if (dto.newVariantId) {
+          const vs = await tx.variant_stock.findUnique({
+            where: { variant_id_branch_id: { variant_id: dto.newVariantId, branch_id: branchId } },
+          });
+          if (!vs || Number(vs.quantity) < newQuantity) {
+            throw new BadRequestException('Stock insuficiente para el producto nuevo.');
+          }
+          await tx.variant_stock.update({
+            where: { variant_id_branch_id: { variant_id: dto.newVariantId, branch_id: branchId } },
+            data: { quantity: { decrement: newQuantity } },
+          });
+        } else {
+          const s = await tx.stock.findUnique({
+            where: { product_id_branch_id: { product_id: newProductId, branch_id: branchId } },
+          });
+          if (!s || Number(s.quantity) < newQuantity) {
+            throw new BadRequestException('Stock insuficiente para el producto nuevo.');
+          }
+          await tx.stock.update({
+            where: { product_id_branch_id: { product_id: newProductId, branch_id: branchId } },
+            data: { quantity: { decrement: newQuantity } },
+          });
         }
-        await tx.variant_stock.update({
-          where: { variant_id_branch_id: { variant_id: dto.newVariantId, branch_id: branchId } },
-          data: { quantity: { decrement: dto.newQuantity } },
-        });
-      } else {
-        const s = await tx.stock.findUnique({
-          where: { product_id_branch_id: { product_id: dto.newProductId, branch_id: branchId } },
-        });
-        if (!s || Number(s.quantity) < dto.newQuantity) {
-          throw new BadRequestException('Stock insuficiente para el producto nuevo.');
-        }
-        await tx.stock.update({
-          where: { product_id_branch_id: { product_id: dto.newProductId, branch_id: branchId } },
-          data: { quantity: { decrement: dto.newQuantity } },
-        });
       }
 
-      const difference = dto.newPrice - dto.returnedPrice;
+      const newPrice = isRefundOnly ? 0 : (dto.newPrice ?? 0);
+      const difference = newPrice - dto.returnedPrice;
 
       // ── Registrar movimiento en caja abierta ─────────────────────────────────
       if (difference !== 0) {
@@ -102,15 +109,17 @@ export class ExchangesService implements OnModuleInit {
               user_id: user.sub,
               type: difference > 0 ? 'INCOME' : 'EXPENSE',
               amount: Math.abs(difference),
-              reason: difference > 0
-                ? `Diferencia cambio - ${retName}`
-                : `Devolución cambio - ${retName}`,
+              reason: isRefundOnly
+                ? `Devolución de dinero - ${retName}`
+                : (difference > 0
+                    ? `Diferencia cambio - ${retName}`
+                    : `Devolución cambio - ${retName}`),
             },
           });
         }
       }
 
-      // ── Crear registro de cambio ──────────────────────────────────────────────
+      // ── Crear registro de cambio / devolución ─────────────────────────────────
       return tx.exchanges.create({
         data: {
           company_id: user.companyId,
@@ -121,10 +130,10 @@ export class ExchangesService implements OnModuleInit {
           returned_product_name: dto.returnedProductName ?? null,
           returned_quantity: dto.returnedQuantity,
           returned_price: dto.returnedPrice,
-          new_product_id: dto.newProductId,
+          new_product_id: dto.newProductId ?? null,
           new_variant_id: dto.newVariantId ?? null,
-          new_quantity: dto.newQuantity,
-          new_price: dto.newPrice,
+          new_quantity: isRefundOnly ? 0 : (dto.newQuantity ?? 1),
+          new_price: newPrice,
           difference,
           payment_method: dto.paymentMethod ?? null,
           notes: dto.notes ?? null,
