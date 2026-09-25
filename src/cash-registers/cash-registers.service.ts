@@ -106,7 +106,8 @@ export class CashRegistersService {
             include: {
                 sale_items: {
                     include: { products: { select: { name: true, is_consignment: true } } }
-                }
+                },
+                sale_payments: { select: { method: true, amount: true } },
             },
         });
 
@@ -121,17 +122,16 @@ export class CashRegistersService {
         }
         const consignmentItems = Array.from(consignmentMap.entries()).map(([name, total]) => ({ name, total }));
 
-        const cashSales = salesInSession
-            .filter(s => s.payment_method === 'CASH')
-            .reduce((sum, s) => sum + Number(s.total), 0);
+        // Se suma por sale_payments (no por sales.total) para que una venta con
+        // pago mixto reparta correctamente cuánto entró en efectivo vs. tarjeta.
+        const paymentsInSession = salesInSession.flatMap(s => s.sale_payments);
+        const sumByMethod = (method: string) => paymentsInSession
+            .filter(p => p.method === method)
+            .reduce((sum, p) => sum + Number(p.amount), 0);
 
-        const cardSales = salesInSession
-            .filter(s => s.payment_method === 'CARD')
-            .reduce((sum, s) => sum + Number(s.total), 0);
-
-        const transferSales = salesInSession
-            .filter(s => s.payment_method === 'TRANSFER')
-            .reduce((sum, s) => sum + Number(s.total), 0);
+        const cashSales = sumByMethod('CASH');
+        const cardSales = sumByMethod('CARD');
+        const transferSales = sumByMethod('TRANSFER');
 
         // Movimientos manuales de caja (gastos e ingresos)
         const allMovements = await this.prisma.cash_movements.findMany({
@@ -236,7 +236,7 @@ export class CashRegistersService {
             },
             select: {
                 total: true,
-                payment_method: true,
+                sale_payments: { select: { method: true, amount: true } },
                 sale_items: {
                     select: {
                         subtotal: true,
@@ -246,9 +246,14 @@ export class CashRegistersService {
             },
         });
 
-        const cashSales = salesInSession.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + Number(s.total), 0);
-        const cardSales = salesInSession.filter(s => s.payment_method === 'CARD').reduce((sum, s) => sum + Number(s.total), 0);
-        const transferSales = salesInSession.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + Number(s.total), 0);
+        const paymentsInSession = salesInSession.flatMap(s => s.sale_payments);
+        const sumByMethod = (method: string) => paymentsInSession
+            .filter(p => p.method === method)
+            .reduce((sum, p) => sum + Number(p.amount), 0);
+
+        const cashSales = sumByMethod('CASH');
+        const cardSales = sumByMethod('CARD');
+        const transferSales = sumByMethod('TRANSFER');
         const totalSales = cashSales + cardSales + transferSales;
 
         const totalConsignment = salesInSession.reduce((sum, sale) => {
@@ -348,7 +353,8 @@ export class CashRegistersService {
                 include: {
                     sale_items: {
                         include: { products: { select: { name: true, is_consignment: true } } }
-                    }
+                    },
+                    sale_payments: { select: { method: true, amount: true } },
                 },
             });
 
@@ -363,9 +369,14 @@ export class CashRegistersService {
             }
             const consignmentItems = Array.from(consignmentMap.entries()).map(([name, total]) => ({ name, total }));
 
-            const cashSales = salesInSession.filter(s => s.payment_method === 'CASH').reduce((sum, s) => sum + Number(s.total), 0);
-            const cardSales = salesInSession.filter(s => s.payment_method === 'CARD').reduce((sum, s) => sum + Number(s.total), 0);
-            const transferSales = salesInSession.filter(s => s.payment_method === 'TRANSFER').reduce((sum, s) => sum + Number(s.total), 0);
+            const paymentsInSession = salesInSession.flatMap(s => s.sale_payments);
+            const sumByMethod = (method: string) => paymentsInSession
+                .filter(p => p.method === method)
+                .reduce((sum, p) => sum + Number(p.amount), 0);
+
+            const cashSales = sumByMethod('CASH');
+            const cardSales = sumByMethod('CARD');
+            const transferSales = sumByMethod('TRANSFER');
             const totalExpenses = session.cash_movements.filter(m => m.type === 'EXPENSE').reduce((sum, m) => sum + Number(m.amount), 0);
             const totalIncomes = session.cash_movements.filter(m => m.type === 'INCOME').reduce((sum, m) => sum + Number(m.amount), 0);
             const openingAmount = Number(session.opening_amount ?? 0);

@@ -86,6 +86,20 @@ async function run() {
   // paid_at en ventas (momento real del cobro, para cierres de caja correctos)
   await sql(`ALTER TABLE "sales" ADD COLUMN IF NOT EXISTS "paid_at" TIMESTAMP(6)`);
 
+  // sale_payments: desglose de pagos por venta, permite pago mixto (ej. mitad
+  // efectivo mitad tarjeta) sin perder cuánto entró por cada método.
+  await sql(`
+    CREATE TABLE IF NOT EXISTS "sale_payments" (
+      "id"         UUID          NOT NULL DEFAULT uuid_generate_v4(),
+      "sale_id"    UUID          NOT NULL,
+      "method"     TEXT          NOT NULL,
+      "amount"     DECIMAL(12,2) NOT NULL,
+      "created_at" TIMESTAMP(6)           DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "sale_payments_pkey" PRIMARY KEY ("id")
+    )
+  `);
+  await sql(`CREATE INDEX IF NOT EXISTS "sale_payments_sale_id_idx" ON "sale_payments"("sale_id")`);
+
   // Foreign keys — idempotentes via DO/IF NOT EXISTS en pg_constraint
   const fk = async (constraint, stmt) => {
     await prisma.$executeRawUnsafe(`
@@ -103,6 +117,7 @@ async function run() {
   await fk("variant_attribute_values_variant_id_fkey",    `ALTER TABLE "variant_attribute_values" ADD CONSTRAINT "variant_attribute_values_variant_id_fkey"    FOREIGN KEY ("variant_id")         REFERENCES "product_variants"("id")  ON DELETE CASCADE  ON UPDATE NO ACTION`);
   await fk("variant_attribute_values_attr_value_id_fkey", `ALTER TABLE "variant_attribute_values" ADD CONSTRAINT "variant_attribute_values_attr_value_id_fkey" FOREIGN KEY ("attribute_value_id") REFERENCES "attribute_values"("id")  ON DELETE CASCADE  ON UPDATE NO ACTION`);
   await fk("variant_stock_variant_id_fkey",               `ALTER TABLE "variant_stock"            ADD CONSTRAINT "variant_stock_variant_id_fkey"               FOREIGN KEY ("variant_id")         REFERENCES "product_variants"("id")  ON DELETE CASCADE  ON UPDATE NO ACTION`);
+  await fk("sale_payments_sale_id_fkey",                  `ALTER TABLE "sale_payments"            ADD CONSTRAINT "sale_payments_sale_id_fkey"                  FOREIGN KEY ("sale_id")            REFERENCES "sales"("id")             ON DELETE CASCADE  ON UPDATE NO ACTION`);
   await fk("variant_stock_branch_id_fkey",                `ALTER TABLE "variant_stock"            ADD CONSTRAINT "variant_stock_branch_id_fkey"                FOREIGN KEY ("branch_id")          REFERENCES "branches"("id")          ON DELETE CASCADE  ON UPDATE NO ACTION`);
   await fk("sale_items_variant_id_fkey",                  `ALTER TABLE "sale_items"               ADD CONSTRAINT "sale_items_variant_id_fkey"                  FOREIGN KEY ("variant_id")         REFERENCES "product_variants"("id")  ON DELETE SET NULL ON UPDATE NO ACTION`);
 

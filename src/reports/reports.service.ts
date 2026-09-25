@@ -145,20 +145,22 @@ export class ReportsService {
       .slice(0, limit);
   }
 
-  /** Desglose por método de pago */
+  /** Desglose por método de pago (una venta con pago mixto aporta a cada método su parte) */
   async getPaymentMethods(startDate: string, endDate: string, user: ActiveUserData) {
     if (!user.branchIds?.length) throw new BadRequestException('Sin sucursales asignadas.');
     const { start, end } = this.parseDates(startDate, endDate);
-    const sales = await this.prisma.sales.findMany({
-      where: { company_id: user.companyId, branch_id: { in: user.branchIds }, created_at: { gte: start, lte: end }, status: 'PAID' },
-      select: { payment_method: true, total: true },
+    const payments = await this.prisma.sale_payments.findMany({
+      where: {
+        sales: { company_id: user.companyId, branch_id: { in: user.branchIds }, created_at: { gte: start, lte: end }, status: 'PAID' },
+      },
+      select: { method: true, amount: true },
     });
     const map = new Map<string, { method: string; total: number; count: number }>();
     const labels: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', CREDIT: 'Crédito' };
-    sales.forEach(s => {
-      const m = s.payment_method || 'CASH';
+    payments.forEach(p => {
+      const m = p.method || 'CASH';
       const e = map.get(m) || { method: labels[m] || m, total: 0, count: 0 };
-      e.total += Number(s.total); e.count += 1;
+      e.total += Number(p.amount); e.count += 1;
       map.set(m, e);
     });
     return Array.from(map.values()).sort((a, b) => b.total - a.total);

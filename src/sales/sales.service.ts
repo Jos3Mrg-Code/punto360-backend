@@ -1,12 +1,42 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateSaleDto, HoldSaleDto, CompleteSaleDto } from './dto/create-sale.dto';
+import { CreateSaleDto, HoldSaleDto, CompleteSaleDto, SalePaymentDto } from './dto/create-sale.dto';
 import type { ActiveUserData } from '../auth/interfaces/active-user-data.interface';
 
+const SPLITTABLE_METHODS = ['CASH', 'CARD', 'TRANSFER'];
 
 @Injectable()
 export class SalesService {
     constructor(private prisma: PrismaService) {}
+
+    /**
+     * Resuelve cómo se pagó la venta: un solo método (lo normal) o un pago
+     * mixto (varios métodos que deben sumar el total). CREDIT no se mezcla
+     * — una venta a crédito compromete el total completo con el cliente,
+     * eso es lo que usa el cálculo de saldo de cartera.
+     */
+    private resolvePayments(dto: { paymentMethod: string; total: number; payments?: SalePaymentDto[] }) {
+        if (dto.payments && dto.payments.length > 0) {
+            if (dto.payments.some(p => !SPLITTABLE_METHODS.includes(p.method))) {
+                throw new BadRequestException(`Un pago mixto solo admite ${SPLITTABLE_METHODS.join(', ')}.`);
+            }
+            const sum = dto.payments.reduce((s, p) => s + p.amount, 0);
+            if (Math.abs(sum - dto.total) > 0.5) {
+                throw new BadRequestException(`La suma de los pagos (${sum}) no coincide con el total (${dto.total}).`);
+            }
+            return {
+                label: 'MIXED',
+                isCredit: false,
+                rows: dto.payments.filter(p => p.amount > 0).map(p => ({ method: p.method, amount: p.amount })),
+            };
+        }
+
+        return {
+            label: dto.paymentMethod,
+            isCredit: dto.paymentMethod === 'CREDIT',
+            rows: [{ method: dto.paymentMethod, amount: dto.total }],
+        };
+    }
 
     /**
      * Reserva el siguiente consecutivo de factura de la empresa.
@@ -31,7 +61,7 @@ export class SalesService {
         
         const branchId = user.branchIds[0];
 
-        const isCredit = dto.paymentMethod === 'CREDIT';
+        const { label: paymentLabel, isCredit, rows: paymentRows } = this.resolvePayments(dto);
         if (isCredit && !dto.customerId) {
             throw new BadRequestException('Una venta a crédito requiere un cliente asociado.');
         }
@@ -56,12 +86,16 @@ export class SalesService {
                     customer_id: dto.customerId || null,
                     sale_number: saleNumber,
                     total: dto.total,
-                    payment_method: dto.paymentMethod,
+                    payment_method: paymentLabel,
                     status: 'PAID',
                     is_credit: isCredit,
                     sale_type: dto.saleType || 'WHOLESALE',
                     paid_at: new Date(),
                 }
+            });
+
+            await tx.sale_payments.createMany({
+                data: paymentRows.map(p => ({ sale_id: sale.id, method: p.method, amount: p.amount })),
             });
 
             // 2. Procesar cada item, registrar en sale_items y descontar stock
@@ -139,10 +173,14 @@ export class SalesService {
             status: 'PAID'
         };
 
-        const [todaySales, monthSales, recentSales, lowStock, totalProducts] = await Promise.all([
+        const [todaySales, cashPaymentsToday, monthSales, recentSales, lowStock, totalProducts] = await Promise.all([
             this.prisma.sales.findMany({
                 where: { ...baseWhere, created_at: { gte: todayStart } },
                 select: { total: true, payment_method: true }
+            }),
+            this.prisma.sale_payments.aggregate({
+                _sum: { amount: true },
+                where: { method: 'CASH', sales: { ...baseWhere, created_at: { gte: todayStart } } }
             }),
             this.prisma.sales.findMany({
                 where: { ...baseWhere, created_at: { gte: monthStart } },
@@ -177,9 +215,7 @@ export class SalesService {
         ]);
 
         const totalHoy = todaySales.reduce((sum, s) => sum + Number(s.total), 0);
-        const efectivoHoy = todaySales
-            .filter(s => s.payment_method === 'CASH')
-            .reduce((sum, s) => sum + Number(s.total), 0);
+        const efectivoHoy = Number(cashPaymentsToday._sum.amount ?? 0);
         const totalMes = monthSales.reduce((sum, s) => sum + Number(s.total), 0);
 
         return {
@@ -228,6 +264,7 @@ export class SalesService {
                 branches: { select: { name: true, address: true, phone: true } },
                 users: { select: { name: true } },
                 customers: { select: { name: true } },
+                sale_payments: { select: { method: true, amount: true } },
                 sale_items: {
                     include: {
                         products: {
@@ -310,11 +347,6 @@ export class SalesService {
         }
         const branchId = user.branchIds[0];
 
-        const isCredit = dto.paymentMethod === 'CREDIT';
-        if (isCredit && !dto.customerId) {
-            throw new BadRequestException('Una venta a crédito requiere un cliente asociado.');
-        }
-
         return this.prisma.$transaction(async (tx) => {
             const sale = await tx.sales.findFirst({
                 where: { id: saleId, company_id: user.companyId, status: 'PENDING' },
@@ -322,6 +354,15 @@ export class SalesService {
             });
 
             if (!sale) throw new NotFoundException('Factura pendiente no encontrada.');
+
+            const { label: paymentLabel, isCredit, rows: paymentRows } = this.resolvePayments({
+                paymentMethod: dto.paymentMethod,
+                total: Number(sale.total),
+                payments: dto.payments,
+            });
+            if (isCredit && !dto.customerId) {
+                throw new BadRequestException('Una venta a crédito requiere un cliente asociado.');
+            }
 
             for (const item of sale.sale_items) {
                 const currentStock = await tx.stock.findFirst({
@@ -352,11 +393,15 @@ export class SalesService {
             // El consecutivo se asigna al cobrar, no al pausar la factura
             const saleNumber = sale.sale_number ?? await this.nextSaleNumber(tx, user.companyId);
 
+            await tx.sale_payments.createMany({
+                data: paymentRows.map(p => ({ sale_id: sale.id, method: p.method, amount: p.amount })),
+            });
+
             return tx.sales.update({
                 where: { id: saleId },
                 data: {
                     status: 'PAID',
-                    payment_method: dto.paymentMethod,
+                    payment_method: paymentLabel,
                     customer_id: dto.customerId || null,
                     sale_number: saleNumber,
                     is_credit: isCredit,

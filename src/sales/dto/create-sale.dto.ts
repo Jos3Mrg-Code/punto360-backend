@@ -1,4 +1,4 @@
-import { IsArray, IsNumber, IsString, IsOptional, ValidateNested } from 'class-validator';
+import { IsArray, IsNumber, IsString, IsOptional, ValidateNested, ArrayMinSize } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class SaleItemDto {
@@ -16,6 +16,14 @@ class SaleItemDto {
     price: number;
 }
 
+export class SalePaymentDto {
+    @IsString()
+    method: string;
+
+    @IsNumber()
+    amount: number;
+}
+
 export class CreateSaleDto {
     @IsArray()
     @ValidateNested({ each: true })
@@ -27,6 +35,13 @@ export class CreateSaleDto {
 
     @IsNumber()
     total: number;
+
+    @IsOptional()
+    @IsArray()
+    @ArrayMinSize(2)
+    @ValidateNested({ each: true })
+    @Type(() => SalePaymentDto)
+    payments?: SalePaymentDto[];
 
     @IsOptional()
     @IsString()
@@ -50,6 +65,13 @@ export class HoldSaleDto {
 export class CompleteSaleDto {
     @IsString()
     paymentMethod: string;
+
+    @IsOptional()
+    @IsArray()
+    @ArrayMinSize(2)
+    @ValidateNested({ each: true })
+    @Type(() => SalePaymentDto)
+    payments?: SalePaymentDto[];
 
     @IsOptional()
     @IsString()
