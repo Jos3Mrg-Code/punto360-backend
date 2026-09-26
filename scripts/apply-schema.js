@@ -318,6 +318,17 @@ async function run() {
   await fk("shopify_sync_queue_company_id_fkey", `ALTER TABLE "shopify_sync_queue" ADD CONSTRAINT "shopify_sync_queue_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
   await fk("shopify_sync_queue_product_id_fkey", `ALTER TABLE "shopify_sync_queue" ADD CONSTRAINT "shopify_sync_queue_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
 
+  // Backfill de sale_payments: las ventas creadas antes de esta tabla no
+  // tienen ninguna fila ahí, así que el arqueo de caja las contaba en $0.
+  // Se les crea una fila con su payment_method/total actuales (idempotente:
+  // solo toca ventas que todavía no tengan ningún pago registrado).
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO "sale_payments" (sale_id, method, amount)
+    SELECT s.id, COALESCE(s.payment_method, 'CASH'), s.total
+    FROM "sales" s
+    WHERE NOT EXISTS (SELECT 1 FROM "sale_payments" sp WHERE sp.sale_id = s.id)
+  `);
+
   // Marcar como verificadas las empresas legacy (sin suscripción TRIAL) para que no queden bloqueadas
   await prisma.$executeRawUnsafe(`
     UPDATE "companies"
