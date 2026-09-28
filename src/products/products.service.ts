@@ -735,19 +735,35 @@ export class ProductsService {
             throw new Error('Producto no encontrado o no autorizado');
         }
 
-        return this.prisma.products.update({
-            where: { id },
-            data: {
-                name: dto.name,
-                category_id: dto.category_id,
-                cost_price: dto.cost_price,
-                sale_price: dto.sale_price,
-                unit_type: dto.unit_type || 'UNIT',
-                is_active: dto.is_active,
-                is_consignment: dto.is_consignment ?? false,
-                has_variants: dto.has_variants ?? false,
-                barcode: dto.barcode ?? null,
+        return this.prisma.$transaction(async (tx) => {
+            const updated = await tx.products.update({
+                where: { id },
+                data: {
+                    name: dto.name,
+                    category_id: dto.category_id,
+                    cost_price: dto.cost_price,
+                    sale_price: dto.sale_price,
+                    unit_type: dto.unit_type || 'UNIT',
+                    is_active: dto.is_active,
+                    is_consignment: dto.is_consignment ?? false,
+                    has_variants: dto.has_variants ?? false,
+                    barcode: dto.barcode ?? null,
+                }
+            });
+
+            // Solo productos simples (sin variantes) guardan stock aquí — las
+            // variantes manejan el suyo aparte. Restringido a ADMIN igual que
+            // en el frontend, para que un cajero no pise el stock sin querer.
+            const branchId = user.branchIds?.[0];
+            if (!dto.has_variants && dto.stock !== undefined && user.role === 'ADMIN' && branchId) {
+                await tx.stock.upsert({
+                    where: { product_id_branch_id: { product_id: id, branch_id: branchId } },
+                    update: { quantity: dto.stock },
+                    create: { product_id: id, branch_id: branchId, quantity: dto.stock },
+                });
             }
+
+            return updated;
         });
     }
 }
