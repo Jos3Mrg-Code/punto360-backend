@@ -318,6 +318,33 @@ async function run() {
   await fk("shopify_sync_queue_company_id_fkey", `ALTER TABLE "shopify_sync_queue" ADD CONSTRAINT "shopify_sync_queue_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
   await fk("shopify_sync_queue_product_id_fkey", `ALTER TABLE "shopify_sync_queue" ADD CONSTRAINT "shopify_sync_queue_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
 
+  // sku_counters: reserva atómica del siguiente SKU de "Nuevo Producto" por
+  // empresa + prefijo de sucursal, para que dos dispositivos creando al mismo
+  // tiempo no terminen viendo (y chocando con) el mismo SKU sugerido.
+  await sql(`
+    CREATE TABLE IF NOT EXISTS "sku_counters" (
+      "company_id"  UUID    NOT NULL,
+      "branch_code" TEXT    NOT NULL,
+      "last_number" INTEGER NOT NULL DEFAULT 0,
+      CONSTRAINT "sku_counters_pkey" PRIMARY KEY ("company_id", "branch_code")
+    )
+  `);
+  // Backfill: arranca cada contador en el máximo número ya usado, para no
+  // repetir SKUs de productos que ya existían antes de esta tabla.
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO "sku_counters" (company_id, branch_code, last_number)
+    SELECT
+      p.company_id,
+      regexp_replace(p.sku, '-([0-9]+)$', '') AS branch_code,
+      MAX((regexp_match(p.sku, '-([0-9]+)$'))[1]::int) AS last_number
+    FROM "products" p
+    WHERE p.company_id IS NOT NULL
+      AND p.sku ~ '-[0-9]+$'
+    GROUP BY p.company_id, regexp_replace(p.sku, '-([0-9]+)$', '')
+    ON CONFLICT (company_id, branch_code) DO UPDATE
+    SET last_number = GREATEST("sku_counters".last_number, EXCLUDED.last_number)
+  `);
+
   // Backfill de sale_payments: las ventas creadas antes de esta tabla no
   // tienen ninguna fila ahí, así que el arqueo de caja las contaba en $0.
   // Se les crea una fila con su payment_method/total actuales (idempotente:

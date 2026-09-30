@@ -13,14 +13,41 @@ export class ProductsService {
         private shopifySync: ShopifySyncService,
     ) { }
 
+    /**
+     * Reserva atómicamente el siguiente SKU (ej. MAIN-0117) para la empresa +
+     * sucursal del usuario. El UPDATE/INSERT toma un lock sobre la fila del
+     * contador, así que dos dispositivos creando un producto al mismo tiempo
+     * se serializan y nunca reciben el mismo SKU — a diferencia de la vista
+     * previa de /products/next-sku, que solo informa, no reserva.
+     */
+    private async reserveSku(tx: any, user: ActiveUserData): Promise<string> {
+        const branchId = user.branchIds?.[0];
+        if (!branchId) throw new BadRequestException('Sin sucursal asignada.');
+
+        const branch = await tx.branches.findUnique({ where: { id: branchId }, select: { code: true } });
+        const branchCode = branch?.code || 'MAIN';
+
+        const rows = await tx.$queryRaw<{ last_number: number }[]>`
+            INSERT INTO "sku_counters" (company_id, branch_code, last_number)
+            VALUES (${user.companyId}::uuid, ${branchCode}, 1)
+            ON CONFLICT (company_id, branch_code)
+            DO UPDATE SET last_number = "sku_counters".last_number + 1
+            RETURNING last_number
+        `;
+        const number = Number(rows[0].last_number);
+        return `${branchCode}-${String(number).padStart(4, '0')}`;
+    }
+
     async create(dto: CreateProductDto, user: ActiveUserData) {
         return this.prisma.$transaction(async (tx) => {
 
-            // 1️⃣ Crear producto
+            // 1️⃣ Crear producto — el SKU se reserva aquí, no se confía en el
+            // que el cliente vio como vista previa al abrir el formulario.
+            const sku = await this.reserveSku(tx, user);
             const product = await tx.products.create({
                 data: {
                     name: dto.name,
-                    sku: dto.sku,
+                    sku,
                     category_id: dto.category_id,
                     cost_price: dto.cost_price,
                     sale_price: dto.sale_price,
@@ -47,40 +74,26 @@ export class ProductsService {
     }
 
 
+    /** Solo vista previa para el formulario — no reserva nada, create() hace la reserva real. */
     async getNextSku(user: ActiveUserData) {
         const branch = await this.prisma.branches.findUnique({
             where: { id: user.branchIds[0] },
+            select: { code: true },
         });
 
         if (!branch) {
             throw new Error('Sucursal no encontrada');
         }
-        console.log(branch)
         const branchCode = branch.code || 'MAIN';
 
-        const productsWithSku = await this.prisma.products.findMany({
-            where: {
-                company_id: user.companyId,
-                sku: { startsWith: branchCode },
-            },
-            select: { sku: true },
-        });
-
-        let nextNumber = 1;
-
-        if (productsWithSku.length > 0) {
-            const numbers = productsWithSku
-                .map(p => parseInt(p.sku.split('-').at(-1) ?? '0', 10))
-                .filter(n => !isNaN(n));
-            if (numbers.length > 0) {
-                nextNumber = Math.max(...numbers) + 1;
-            }
-        }
-
-        const formattedNumber = nextNumber.toString().padStart(4, '0');
+        const counter = await this.prisma.$queryRaw<{ last_number: number }[]>`
+            SELECT last_number FROM "sku_counters"
+            WHERE company_id = ${user.companyId}::uuid AND branch_code = ${branchCode}
+        `;
+        const nextNumber = Number(counter[0]?.last_number ?? 0) + 1;
 
         return {
-            sku: `${branchCode}-${formattedNumber}`,
+            sku: `${branchCode}-${nextNumber.toString().padStart(4, '0')}`,
         };
     }
 
@@ -202,8 +215,7 @@ export class ProductsService {
             let sku = item.reference?.trim() || '';
             try {
                 if (!sku) {
-                    const next = await this.getNextSku(user);
-                    sku = next.sku;
+                    sku = await this.reserveSku(this.prisma, user);
                 }
 
                 const catName = (item.categoria ?? 'General').trim();

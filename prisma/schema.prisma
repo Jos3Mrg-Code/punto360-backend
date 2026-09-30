@@ -227,6 +227,17 @@ model products {
   @@unique([company_id, sku])
 }
 
+/// Contador atómico para generar el SKU correlativo de "Nuevo Producto"
+/// (ej. MAIN-0117) sin choques entre dispositivos creando al mismo tiempo.
+/// Una fila por combinación empresa + prefijo de sucursal.
+model sku_counters {
+  company_id  String @db.Uuid
+  branch_code String
+  last_number Int    @default(0)
+
+  @@id([company_id, branch_code])
+}
+
 model product_attributes {
   id         String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   product_id String             @db.Uuid
