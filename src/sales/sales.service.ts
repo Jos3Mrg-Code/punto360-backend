@@ -313,6 +313,7 @@ export class SalesService {
                 data: dto.items.map(item => ({
                     sale_id: sale.id,
                     product_id: item.productId,
+                    variant_id: item.variantId || null,
                     quantity: item.quantity,
                     price: item.price,
                     subtotal: item.quantity * item.price,
@@ -334,7 +335,18 @@ export class SalesService {
             },
             include: {
                 sale_items: {
-                    include: { products: { select: { name: true, sku: true } } }
+                    include: {
+                        products: { select: { name: true, sku: true } },
+                        variants: {
+                            include: {
+                                values: {
+                                    include: {
+                                        attribute_value: { include: { attribute: true } },
+                                    },
+                                },
+                            },
+                        },
+                    }
                 }
             },
             orderBy: { created_at: 'desc' }
