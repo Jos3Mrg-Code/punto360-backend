@@ -186,18 +186,20 @@ export class PurchasesService {
                 }
             }));
 
-            // 6. Actualizar costo/precio de productos (solo los que aplican) — en paralelo
-            const productUpdates = dto.items
-                .filter(i => !i.variantId && (i.cost > 0 || (i.salePrice !== undefined && i.salePrice > 0)))
-                .map(i => tx.products.update({
-                    where: { id: i.productId },
-                    data: {
+            // 6. Actualizar costo/precio de productos o variantes (solo los que aplican) — en paralelo
+            const priceUpdates = dto.items
+                .filter(i => i.cost > 0 || (i.salePrice !== undefined && i.salePrice > 0))
+                .map(i => {
+                    const priceData = {
                         ...(i.cost > 0 && { cost_price: i.cost }),
                         ...(i.salePrice !== undefined && i.salePrice > 0 && { sale_price: i.salePrice }),
-                    },
-                }));
+                    };
+                    return i.variantId
+                        ? tx.product_variants.update({ where: { id: i.variantId }, data: priceData })
+                        : tx.products.update({ where: { id: i.productId }, data: priceData });
+                });
 
-            if (productUpdates.length > 0) await Promise.all(productUpdates);
+            if (priceUpdates.length > 0) await Promise.all(priceUpdates);
 
             return purchase;
         }, { timeout: 60000 });
