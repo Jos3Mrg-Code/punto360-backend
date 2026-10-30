@@ -12,7 +12,7 @@ export class CustomersService {
             where: { company_id: user.companyId, is_active: true },
             include: {
                 sales: {
-                    where: { is_credit: true },
+                    where: { is_credit: true, status: { not: 'CANCELLED' } },
                     select: { total: true, status: true, created_at: true },
                 },
                 customer_payments: {
@@ -59,6 +59,7 @@ export class CustomersService {
                 customer_id: customerId,
                 company_id: user.companyId,
                 is_credit: true,
+                status: { not: 'CANCELLED' },
             },
             include: {
                 sale_items: {
@@ -136,7 +137,7 @@ export class CustomersService {
             where: { id: customerId, company_id: user.companyId },
             include: {
                 sales: {
-                    where: { is_credit: true },
+                    where: { is_credit: true, status: { not: 'CANCELLED' } },
                     select: { total: true },
                 },
                 customer_payments: { select: { amount: true } },
